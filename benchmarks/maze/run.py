@@ -10,7 +10,7 @@ def run_episode(
     seed: int = 0,
     max_steps: int = 300,
     rollouts: int = 200,
-    depth: int = 25,
+    depth: int = 50,
     rpn_threshold: int = 240,
     log: bool = False,
 ) -> Dict[str, Any]:

@@ -1,5 +1,6 @@
+from collections import deque
 from dataclasses import dataclass
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 import random
 
 Point = Tuple[int, int]
@@ -42,6 +43,7 @@ class MazeEnv:
         self.grid = self._generate()
         self.start: Point = (1, 1)
         self.goal: Point = (self.SIZE - 2, self.SIZE - 2)
+        self._bfs_dist: Dict[Point, int] = self._precompute_bfs()
         self.reset()
 
     # ------------------------------------------------------------------
@@ -54,6 +56,7 @@ class MazeEnv:
         self.alive: bool = True
         self.reached_goal: bool = False
         self.score: int = 0
+        self.visit_counts: Dict[Point, int] = {self.start: 1}
         return self.obs()
 
     def clone(self, seed: int = 0) -> "MazeEnv":
@@ -62,6 +65,7 @@ class MazeEnv:
         sim.seed = seed
         sim.rng = random.Random(seed)
         sim.grid = [row[:] for row in self.grid]
+        sim._bfs_dist = self._bfs_dist  # immutable after construction
         sim.start = self.start
         sim.goal = self.goal
         sim.agent_pos = self.agent_pos
@@ -69,6 +73,7 @@ class MazeEnv:
         sim.alive = self.alive
         sim.reached_goal = self.reached_goal
         sim.score = self.score
+        sim.visit_counts = dict(self.visit_counts)
         return sim
 
     def step(self, action: str) -> StepResult:
@@ -85,6 +90,7 @@ class MazeEnv:
 
         self.agent_pos = (nr, nc)
         self.steps += 1
+        self.visit_counts[self.agent_pos] = self.visit_counts.get(self.agent_pos, 0) + 1
 
         if self.agent_pos == self.goal:
             self.reached_goal = True
@@ -121,6 +127,11 @@ class MazeEnv:
     def safe_actions(self) -> List[str]:
         return [a for a in ACTIONS if not self.is_dead_move(a)]
 
+    def bfs_to_goal(self, pos: Point) -> int:
+        """Actual path length through open cells from pos to goal.
+        Returns SIZE*SIZE as a large fallback if pos is unreachable (shouldn't occur)."""
+        return self._bfs_dist.get(pos, self.SIZE * self.SIZE)
+
     def manhattan_to_goal(self, pos: Point) -> int:
         return abs(pos[0] - self.goal[0]) + abs(pos[1] - self.goal[1])
 
@@ -134,6 +145,22 @@ class MazeEnv:
             "score": self.score,
             "manhattan": self.manhattan_to_goal(self.agent_pos),
         }
+
+    # ------------------------------------------------------------------
+    # BFS distance precomputation
+    # ------------------------------------------------------------------
+
+    def _precompute_bfs(self) -> Dict[Point, int]:
+        """BFS from goal outward — gives exact path distance to goal for every open cell."""
+        dist: Dict[Point, int] = {self.goal: 0}
+        queue: deque = deque([self.goal])
+        while queue:
+            pos = queue.popleft()
+            for nb in self.open_neighbours(pos):
+                if nb not in dist:
+                    dist[nb] = dist[pos] + 1
+                    queue.append(nb)
+        return dist
 
     # ------------------------------------------------------------------
     # Maze generation — recursive backtracker (DFS)

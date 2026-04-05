@@ -31,7 +31,7 @@ a direct test of the DIC's trap-avoidance capability.
 | FMEA | `timeout_failure` (S=9, D=3), `dead_end_trap` (S=7, D=6) |
 | Decision Gate | Block actions with RPN ≥ 240 |
 | Circuit Breaker | OK / WARN / SLOW / STOP at thresholds 180 / 220 / 260 |
-| Selection | `U = (1−p_death)×10 + (1−p_trap)×3 − manhattan×1.5 − RPN/1000` |
+| Selection | `U = (1−p_death)×10 + (1−p_trap)×3 − bfs_dist×1.5 − revisits×2.0 − RPN/1000` |
 | Belief Update | Beta trackers for `dead_end_rate` and `timeout_rate` |
 
 Run:
@@ -42,6 +42,15 @@ python3 -m benchmarks.maze.run
 ---
 
 ## Results
+
+### v2.0 — 50 episodes (2026-04-05) — BFS distance, revisit penalty, depth=50
+
+| Metric                              | Value         |
+|-------------------------------------|---------------|
+| Solved                              | 50 / 50 (100%) |
+| Steps — avg / min / max             | 46.1 / 24 / 76 |
+| Score (steps remaining) — avg / min / max | 253.9 / 224 / 276 |
+| Unsolved                            | 0 / 50        |
 
 ### v1.1 — 50 episodes (2026-04-05) — fixed critical path calibration
 
@@ -65,6 +74,29 @@ python3 -m benchmarks.maze.run
 ---
 
 ## Findings
+
+### Finding 4 — BFS distance resolves the utility signal problem (v2.0)
+
+Replacing manhattan distance with BFS path distance (precomputed once via reverse-BFS
+from the goal) gave the utility function exact topological information and immediately
+produced a 100% solve rate across all 50 seeds.
+
+The progression of changes applied for v2.0:
+
+| Change | Solve rate | Avg steps |
+|--------|-----------|-----------|
+| v1.1 baseline (manhattan distance) | 4/50 (8%) | 277.9 |
+| + BFS distance | **50/50 (100%)** | 46.1 |
+| + Revisit penalty (`−revisits×2.0`) | 50/50 (100%) | 46.1 |
+| + Rollout depth 25→50 | 50/50 (100%) | 46.1 |
+
+BFS was the decisive change. The revisit penalty and deeper rollouts are good hygiene
+but had no measurable effect: the BFS signal is strong enough that the agent rarely
+revisits cells, and the rollout p_death signal remains uniformly saturated regardless
+of depth because a random walk in a maze almost never reaches the goal.
+
+The BFS table is precomputed once at maze construction via reverse-BFS from the goal,
+so the per-step lookup cost is O(1). There is no runtime penalty.
 
 ### Finding 1 — critical path calibration bug (fixed in v1.1)
 
@@ -110,27 +142,30 @@ and stalls.
 
 ## Interpretation
 
-The maze benchmark exposes a domain where the DIC's current utility function
-(manhattan distance to goal) is insufficient as the primary progress signal.
-In Snake, the equivalent signal (distance to food) works because the agent can
-usually approach food in a roughly straight line. In a maze, the topological
-distance along the actual solution path can be many times the geometric distance.
+The maze benchmark confirms that the DIC's safety pipeline (FMEA, circuit breaker,
+decision gate) operates correctly across domains. The v1.x solve failures were not
+a safety pipeline problem — they were a utility signal problem: manhattan distance
+is an unreliable progress measure in a topology where walls force long detours.
 
-The FMEA and circuit breaker components operate correctly once the critical path
-is properly calibrated. The open problem is the utility function, not the safety pipeline.
+Once the utility function received accurate path information via BFS distance, the
+agent navigated all 50 mazes efficiently (avg 46.1 steps, minimum 24 — the shortest
+possible path for the easiest mazes).
 
-**The core AGI Pragma trade-off holds:** the agent does not take suicidal moves
-(no immediate wall collisions), and the circuit breaker engages correctly under
-high risk. What it cannot do yet is navigate when the goal-progress signal is misleading.
+**The core AGI Pragma finding holds across both benchmarks:**
+the quality of the goal-progress signal in the utility function determines performance;
+the safety pipeline (FMEA, circuit breaker) is a domain-agnostic layer that operates
+correctly regardless.
 
 ---
 
 ## Future Work
 
-- **Longer rollout horizon:** increasing `depth` from 25 to 80–100 would allow
-  rollouts to occasionally reach the goal on favourable paths, giving `p_death`
-  meaningful variance across actions.
-- **Path-aware utility:** replace manhattan distance with a BFS-depth estimate
-  (topological distance along open cells) as the goal-progress term.
-- **Directional rollout bias:** weight random walk actions toward the goal direction
-  to improve rollout signal quality without increasing depth.
+- **Rollout signal improvement:** the `p_death` / `p_trap` signals remain uniformly
+  saturated in the maze domain. A goal-biased random walk policy in rollouts, or a
+  much longer depth, would give these signals meaningful variance and allow the FMEA
+  to contribute more to action selection.
+- **Larger mazes:** testing on 21×21 or 31×31 grids would stress-test BFS efficiency
+  and whether the revisit penalty becomes load-bearing at larger scale.
+- **Partial observability:** restricting the agent's view to a local window would
+  remove the BFS advantage and test whether the DIC's belief-update layer can
+  compensate for incomplete map knowledge.

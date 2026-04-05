@@ -36,7 +36,7 @@ class PragmaMazeAgent:
         self,
         fmea_rpn_threshold: int = 240,
         rollouts: int = 200,
-        depth: int = 25,
+        depth: int = 50,
         seed: int = 0,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
     ):
@@ -80,13 +80,17 @@ class PragmaMazeAgent:
             # 6. Utility
             # - survival:   reward paths less likely to timeout
             # - trap avoid: reward paths less likely to enter dead ends
-            # - goal pull:  reward actions that reduce manhattan distance
+            # - goal pull:  reward actions that reduce BFS path distance to goal
+            # - revisit:    penalise moving to already-visited cells
             # - risk drag:  penalise high RPN
-            dist = env.manhattan_to_goal(self._next_pos(env, a))
+            next_pos = self._next_pos(env, a)
+            dist = env.bfs_to_goal(next_pos)
+            revisits = env.visit_counts.get(next_pos, 0)
             utility = (
                 (1.0 - cp.p_death) * 10.0
                 + (1.0 - cp.p_trap) * 3.0
                 - dist * 1.5
+                - revisits * 2.0
                 - (m_rpn / 1000.0)
             )
 
@@ -103,6 +107,7 @@ class PragmaMazeAgent:
                     "reason": cb.reason,
                 },
                 "utility": utility,
+                "revisits": revisits,
             }
 
             # 4. Decision Gate
