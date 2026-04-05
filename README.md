@@ -72,41 +72,52 @@ See: [docs/safety.md](docs/safety.md)
 
 ---
 
-## Benchmark Results — Snake (v1.0)
+## Benchmark Results — Snake
 
-**Date:** 2026-04-04  
 **Agent:** PragmaSnakeAgent  
-**Environment:** SnakeEnv 10×10  
-**Episodes:** 10 (seeds 0–9)
+**Environment:** SnakeEnv 10×10
 
-### Results
+### v1.0 — 50 episodes (2026-04-05)
+
+| Metric | Value |
+|---|---|
+| Average score | 22.8 |
+| Min / Max score | 9 / 33 |
+| Average reward | 102.4 |
+| Average steps | 201 |
+| Survived to step limit | 2/50 |
+| Scores ≥ 25 | 21/50 (42%) |
+| Scores < 15 | 4/50 (8%) |
+
+### v0.1 — 10 episodes (2026-04-04) — initial run
 
 | Metric | Value |
 |---|---|
 | Average score | 25.0 |
-| Best score | 33 |
+| Min / Max score | 18 / 33 |
 | Average reward | 113.1 |
 | Average steps | 214 |
-| Survival rate | 0/10 (agent plays aggressively) |
+| Survived to step limit | 0/10 |
 
-### Baseline comparison
+> Note: v0.1 used only 10 seeds — higher average reflects small sample size.
+> v1.0 with 50 seeds gives a more reliable picture of agent behavior.
+
+### Key finding — passive vs active agent
 
 | Config | Avg score | Avg reward |
 |---|---|---|
 | dist weight = 0.2 (passive) | 0.4 | ~0 |
-| dist weight = 1.5 (active) | 25.0 | 113.1 |
+| dist weight = 1.5 (active) | 22.8 | 102.4 |
 
-**One parameter change produced a 60× improvement in score.**
+**One parameter change produced a 57× improvement in score.**
 
 ### Interpretation
 
-The agent with low dist weight survived all episodes but scored near zero —
-paralysed by excessive risk aversion.
+42% of episodes scored 25 or above.  
+Only 8% of episodes scored below 15 — rare failures, not systemic.  
+The agent accepts risk to pursue goals and dies actively, not passively.
 
-Increasing dist weight unlocked active play: the agent now seeks food
-aggressively, accepts risk, and scores consistently above 20.
-
-This demonstrates the core AGI Pragma trade-off:  
+This confirms the core AGI Pragma trade-off:  
 **safety ≠ passivity. Controlled risk is required for goal achievement.**
 
 Run:
