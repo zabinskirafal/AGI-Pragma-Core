@@ -1,0 +1,434 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{float}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+% ── Metadata ──────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{AGI Pragma: A Decision Intelligence Core for Safe Agentic AI}%
+}
+
+\author{%
+  Rafal Zabinski\\[4pt]
+  Independent Research\\
+  \texttt{github.com/zabinskirafal/AGI-Pragma-Core}
+}
+
+\date{}
+
+% ── Code style ────────────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\small,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  breaklines=true,
+  captionpos=b,
+}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+\maketitle
+
+% ── Abstract ──────────────────────────────────────────────────────────────────
+\begin{abstract}
+We present AGI Pragma, a seven-stage Decision Intelligence Core (DIC) designed
+to enforce safety constraints and structured risk evaluation before agentic AI
+systems execute actions. The DIC operates as a governance layer between any
+action generator and the environment: it filters candidate actions through
+branching, Monte Carlo critical path estimation, FMEA risk scoring, a
+configurable decision gate, a four-state circuit breaker, utility-based
+selection, and Bayesian belief update. We evaluate the system on three benchmark
+environments --- Snake (10$\times$10 grid, self-collision), Maze (15$\times$15
+recursive backtracker, dead-end traps), and Dynamic Threat Gridworld
+(15$\times$15, five wandering hazards) --- comparing against a random baseline
+that shares the same action filter. The DIC achieves $+$780\% score improvement
+in Snake, 100\% solve rate in Maze (vs.\ 6\% baseline), and 78\% solve rate in
+Gridworld (vs.\ 0\% baseline). We further implement and evaluate persistent
+episodic memory via Bayesian prior transfer across sessions, document the
+conditions under which it provides measurable lift, and derive four empirical
+lessons about DIC calibration in practice.
+\end{abstract}
+
+% ── 1. Introduction ───────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+
+Agentic AI systems --- language models with tool access, autonomous planners,
+multi-agent pipelines --- are increasingly capable of consequential real-world
+action: executing code, modifying files, calling external APIs, interacting with
+live infrastructure. Their failure modes differ qualitatively from those of
+passive models. A hallucinated output is correctable; a dropped database table
+or a committed security misconfiguration may not be.
+
+Existing safety approaches operate at the wrong level of abstraction. Post-hoc
+monitoring detects failures after execution. Constitutional AI and RLHF shape
+preferences but provide no enforcement. Prompt engineering nudges behavior without
+hard constraints. None of these mechanisms answers the question that matters in a
+deployed agentic context: \textit{is this specific action safe to execute right
+now, given the current state of the environment?}
+
+The gap is not the absence of risk knowledge --- it is the absence of a structured
+mechanism that converts risk knowledge into a binding pre-execution constraint.
+
+We address this gap with the Decision Intelligence Core (DIC), a seven-stage
+pipeline that sits between action generation and action execution. The DIC makes
+no assumptions about the upstream generator: an LLM, a rule-based planner, or a
+learned policy may sit above it. Its role is not to generate better actions but
+to govern which generated actions are permitted to execute, and to produce an
+auditable record of every decision.
+
+This paper makes the following contributions:
+\begin{enumerate}[leftmargin=*, nosep]
+  \item A fully specified seven-stage DIC architecture with domain-agnostic
+        safety properties and domain-specific utility extension points.
+  \item Empirical validation across three environments with increasing risk
+        complexity, against a controlled random baseline sharing the same
+        action filter.
+  \item Implementation and experimental evaluation of cross-session Bayesian
+        episodic memory, with a characterisation of the conditions under which
+        it provides measurable lift.
+  \item Four empirically-derived lessons about DIC calibration applicable to
+        any agentic deployment context.
+\end{enumerate}
+
+% ── 2. Method ─────────────────────────────────────────────────────────────────
+\section{Method: The Decision Intelligence Core}
+\label{sec:method}
+
+The DIC processes one decision per time step. Given the current environment state
+and a set of candidate actions, it produces a single approved action and a complete
+audit trace. Figure~\ref{fig:architecture} shows the system position; the seven
+stages are described below.
+
+\begin{figure}[H]
+\centering
+\begin{verbatim}
+  ┌─────────────────────────────┐
+  │   Action Generator          │  LLM, planner, neural policy
+  └────────────┬────────────────┘
+               │ candidate actions
+               ▼
+  ┌─────────────────────────────┐
+  │   Decision Intelligence     │  Branching → Critical Path → FMEA
+  │   Core  (DIC)               │  → Gate → Circuit Breaker
+  │                             │  → Selection → Belief Update
+  └────────────┬────────────────┘
+               │ approved action + audit trace
+               ▼
+  ┌─────────────────────────────┐
+  │   Environment / Execution   │  real world, simulation, API
+  └─────────────────────────────┘
+\end{verbatim}
+\caption{DIC position in the system. The governance layer is indifferent to
+the upstream generator.}
+\label{fig:architecture}
+\end{figure}
+
+\paragraph{Stage 1 --- Branching.}
+Candidate actions are enumerated and any action leading to an immediately fatal
+or physically impossible state is removed before evaluation. This stage is shared
+with the random baseline in all experiments; measured performance improvements are
+attributable to Stages 2--7 only.
+
+\paragraph{Stage 2 --- Critical Path Estimation.}
+Each surviving candidate is evaluated by Monte Carlo rollout. From the state
+that would result from the candidate action, $N$ trajectories of depth $d$ are
+simulated under a lightweight random policy on a cloned environment. Each
+rollout records whether the trajectory terminates in failure or depth exhaustion
+(treated as timeout). Per-candidate estimates are produced:
+\begin{itemize}[nosep]
+  \item $p_{\mathrm{death}}$: fraction of rollouts ending in catastrophic failure,
+  \item $p_{\mathrm{trap}}$: fraction where $\geq 3$ of 4 neighbours are
+        simultaneously occupied (irreversible state),
+  \item $\mathbb{E}[\text{steps to failure}]$: mean steps until first terminal event.
+\end{itemize}
+All experiments use $N = 200$ rollouts and depth $d = 25$ (Snake) or $d = 50$
+(Maze, Gridworld).
+
+\paragraph{Stage 3 --- FMEA Risk Scoring.}
+Each candidate receives a Risk Priority Number:
+\begin{equation}
+  \mathrm{RPN} = \mathrm{Severity} \times \mathrm{Occurrence} \times \mathrm{Detection}
+  \label{eq:rpn}
+\end{equation}
+Severity captures consequence magnitude (range 1--10). Occurrence is derived from
+the Monte Carlo estimates. Detection captures how silently a failure mode manifests
+--- silent failures receive Detection $= 1$ (highest penalty). Each domain defines
+its own FMEA table. The maximum RPN across all failure modes is used for gating.
+
+\paragraph{Stage 4 --- Decision Integrity Gate.}
+Any candidate whose maximum RPN meets or exceeds a configurable threshold $\tau$
+is blocked before utility evaluation. $\tau = 240$ in all experiments. The gate
+is a hard constraint; utility estimates cannot override it.
+
+\paragraph{Stage 5 --- Circuit Breaker.}
+The circuit breaker maintains a four-state autonomy level based on the current
+maximum RPN:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{State} & \textbf{RPN range} & \textbf{Effect} \\
+\midrule
+OK   & $< 180$   & No restriction \\
+WARN & 180--219  & Decision depth logged \\
+SLOW & 220--259  & Decision depth restricted \\
+STOP & $\geq 260$ & Action blocked \\
+\bottomrule
+\end{tabular}
+\caption{Circuit breaker states. When all candidates are blocked the system falls
+back to the least-RPN candidate rather than failing open.}
+\label{tab:circuit_breaker}
+\end{table}
+
+\paragraph{Stage 6 --- Decision Selection.}
+Among unblocked candidates, the agent selects by utility. The general form is:
+\begin{equation}
+  U(a) = (1 - p_{\mathrm{death}}) \cdot w_1
+       + (1 - p_{\mathrm{trap}}) \cdot w_2
+       - \mathrm{dist} \cdot w_3
+       - \mathrm{revisits} \cdot w_4
+       - \frac{\mathrm{RPN}}{1000}
+  \label{eq:utility}
+\end{equation}
+Domain-specific terms are added where appropriate: a proximity penalty in
+Gridworld; exact BFS path distance in Maze.
+
+\paragraph{Stage 7 --- Belief Update.}
+After each action, Bayesian Beta trackers update hazard rate estimates from
+observed risk signals. The posterior after episode $N$ is available as the
+prior for episode $N+1$ via persistent episodic memory
+(Section~\ref{sec:memory}).
+
+% ── 3. Experiments ────────────────────────────────────────────────────────────
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Environments}
+
+\textbf{Snake} is a 10$\times$10 grid where the agent navigates a growing snake
+body toward food. Self-collision and wall collision are terminal. The dominant
+risk is trap: the snake's own body creates irreversible configurations.
+
+\textbf{Maze} is a 15$\times$15 grid generated by recursive backtracking. Wall
+hits are no-ops. The agent navigates from the top-left cell to the bottom-right.
+A BFS distance table is precomputed from the goal at episode start; the utility
+function uses exact topological path distance, not Manhattan distance.
+
+\textbf{Dynamic Threat Gridworld} is a 15$\times$15 grid with five wandering
+hazard agents that move randomly each step. Contact with a hazard from any
+direction is terminal. WAIT is a first-class action. This is the first
+environment in the suite where $p_{\mathrm{death}}$ varies meaningfully across
+candidate actions at every step --- moving toward a hazard cluster has
+genuinely higher $p_{\mathrm{death}}$ than WAIT or evasion.
+
+\subsection{Baseline}
+
+The baseline agent selects uniformly at random from \texttt{safe\_actions()} ---
+the same immediate-collision filter used by Stage 1 of the DIC. This isolates the
+contribution of Stages 2--7. The baseline uses no FMEA, no Monte Carlo estimation,
+no circuit breaker, and no utility function.
+
+\subsection{Results}
+
+All results are over 50 episodes per agent per benchmark, seeds 0--49.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Metric} & \textbf{Baseline} & \textbf{DIC (Pragma)} & \textbf{$\Delta$} \\
+\midrule
+Avg score   & 2.6   & 22.5  & $+$780\% \\
+Max score   & 7     & 33    & $+$371\% \\
+Avg steps   & 284.2 & 198.0 & $-$30\%  \\
+Avg reward  & 8.6   & 101.4 & $+$1081\% \\
+\bottomrule
+\end{tabular}
+\caption{Snake --- 10$\times$10 grid, 50 episodes each. Lower steps is better
+(fewer wasted steps before terminal state or food collection).}
+\label{tab:snake}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Metric} & \textbf{Baseline} & \textbf{DIC (Pragma)} & \textbf{$\Delta$} \\
+\midrule
+Solved              & 3/50 (6\%)   & 50/50 (100\%) & $+$1567\% \\
+Avg steps (all)     & 296.1        & 46.1          & $-$84\%   \\
+Avg steps (solved)  & 234.7        & 46.1          & $-$80\%   \\
+Avg reward          & $-$38.3      & 5.5           & $+$114\%  \\
+\bottomrule
+\end{tabular}
+\caption{Maze --- 15$\times$15 recursive backtracker, 50 episodes each.
+The random baseline spent 234.7 steps on the 3 episodes it did solve;
+Pragma solved all 50 in 46.1 steps on average.}
+\label{tab:maze}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Metric} & \textbf{Baseline} & \textbf{DIC (Pragma)} & \textbf{$\Delta$} \\
+\midrule
+Solved          & 0/50 (0\%)  & 39/50 (78\%) & ---       \\
+Killed by hazard & 50/50      & 11/50        & $-$78\%   \\
+Timed out       & 0/50        & 0/50         & ---       \\
+Avg steps       & 56.8        & 22.8         & $-$60\%   \\
+Avg reward      & $-$17.4     & 3.4          & $+$120\%  \\
+\bottomrule
+\end{tabular}
+\caption{Dynamic Threat Gridworld --- 15$\times$15, 5 wandering hazards, 50
+episodes each. The baseline was killed by a hazard in every episode. Zero
+timeouts for Pragma confirms decisive forward progress in all episodes.}
+\label{tab:gridworld}
+\end{table}
+
+The 11 killed Gridworld episodes represent hazard configurations that intersect
+the direct path regardless of decision quality. The circuit breaker operated in
+WARN/SLOW range (RPN 180--200) throughout --- the system correctly self-constrained
+without reaching STOP.
+
+% ── 4. Episodic Memory ────────────────────────────────────────────────────────
+\section{Episodic Memory}
+\label{sec:memory}
+
+\subsection{Implementation}
+
+Stage 7 produces Beta posterior parameters $(a, b)$ for each tracked hazard rate.
+The episodic memory module persists this state to \texttt{artifacts/<benchmark>/memory.json}
+at session end and loads it at session start, seeding Beta trackers with the
+loaded $(a, b)$ rather than the uniform prior $\mathrm{Beta}(1, 1)$. An optional
+decay factor $\alpha \in (0, 1]$ shrinks accumulated pseudo-counts toward the
+uniform prior:
+\begin{equation}
+  a_{\mathrm{new}} = 1 + (a_{\mathrm{loaded}} - 1) \cdot \alpha
+  \label{eq:decay}
+\end{equation}
+
+We additionally implemented $p_{\mathrm{death}}$ blending: at each step, the
+Monte Carlo estimate is blended with the tracker's current mean:
+\begin{equation}
+  p_{\mathrm{death,adj}} = 0.7 \cdot p_{\mathrm{death}}^{\mathrm{MC}}
+                         + 0.3 \cdot \mu_{\mathrm{tracker}}
+  \label{eq:blend}
+\end{equation}
+The adjusted value propagates through FMEA, circuit breaker, utility, and the
+subsequent belief update.
+
+\subsection{Experiment and Results}
+
+A two-pass comparison was run on all three benchmarks (50 episodes per pass,
+seeds 0--49). Pass~1: no memory file present (uniform priors, cold start).
+Pass~2: memory loaded from Pass~1 (warm start). Both prior seeding alone and
+the blended $p_{\mathrm{death}}$ were tested.
+
+\textbf{Result:} zero measurable difference across all metrics in all three
+benchmarks under both implementations.
+
+\subsection{Analysis}
+
+Three structural reasons account for the null result.
+
+\textbf{(i) Deterministic seeds remove stochasticity between passes.}
+Both passes use \texttt{seed=0..49} on identical environment instances.
+Monte Carlo rollouts use the episode seed as \texttt{seed\_base}, so
+$p_{\mathrm{death}}^{\mathrm{MC}}$ is identical in both passes for every action
+at every step. The blended value can only differ by the prior term, which is
+itself derived from the same Pass~1 run.
+
+\textbf{(ii) In-session accumulation floods the inter-session prior.}
+Within 50 episodes, Beta trackers accumulate thousands of pseudo-counts
+(e.g.\ $\mathrm{Beta}(10028, 1)$ for \texttt{death\_rate} in Snake). A loaded
+prior of the same magnitude is immediately overwhelmed by in-session updates
+converging to the same posterior. The prior's influence vanishes within the
+first 3--4 episodes of Pass~2.
+
+\textbf{(iii) Performance ceilings.} Maze achieves 50/50 and Snake averages
+22.5 on deterministic seeds regardless of prior calibration. There is no
+headroom for memory-enabled lift.
+
+Episodic memory is an adaptation mechanism, not a performance mechanism. Its
+value is proportional to: (a) stochasticity between sessions, (b) a cold-start
+period where prior calibration can materially change early decisions, and
+(c) available headroom below performance ceilings. These conditions are absent
+in fixed-seed 50-episode benchmarks but are present in real deployments with
+drifting environments and short session budgets.
+
+% ── 5. Lessons Learned ────────────────────────────────────────────────────────
+\section{Lessons Learned}
+\label{sec:lessons}
+
+\paragraph{L1 --- The safety pipeline is not the performance bottleneck.}
+Across all three benchmarks and all calibration iterations, the FMEA gate and
+circuit breaker operated correctly without modification. Every performance failure
+was traceable to the utility function or critical path estimate. The pipeline is
+a stable, domain-agnostic layer. Improving it did not improve performance;
+improving the utility function and signal calibration did.
+
+\paragraph{L2 --- The utility function is the primary design variable.}
+Each benchmark improvement came from fixing the goal-progress signal, not the
+safety constraints. Snake improved 57$\times$ by increasing the food-distance
+weight from 0.2 to 1.5. Maze improved from 6\% to 100\% by replacing Manhattan
+distance with BFS path distance. The correct architectural separation is
+\textit{invariant safety} (DIC stages 1--5) and \textit{domain-specific progress
+signal} (Stage~6 utility). Safety should remain fixed; the utility function is
+tuned per domain.
+
+\paragraph{L3 --- Critical path calibration must respect domain solution length.}
+In Maze v1.0, rollout depth (25 steps) was shorter than the minimum maze solution
+length under the rollout policy. $p_{\mathrm{death}}$ was never triggered,
+silently producing zero for every candidate. The correct principle: calibrate
+depth to the \textit{expected time-to-failure under the rollout policy}, not to
+the episode step budget.
+
+\paragraph{L4 --- Signal accuracy without variance is uninformative.}
+After the Maze v1.0 calibration fix, $p_{\mathrm{death}} \approx 1.0$ for all
+candidate actions --- accurate, but providing no basis for action selection. Useful
+risk estimation requires variance across the action set, not merely correctness in
+aggregate. The Gridworld environment is the first in this suite where
+$p_{\mathrm{death}}$ is genuinely differentiating: moving toward a hazard cluster
+has measurably higher $p_{\mathrm{death}}$ than WAIT or evasion.
+
+% ── 6. Conclusion ─────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented the Decision Intelligence Core --- a seven-stage pre-execution
+governance layer for agentic AI systems --- and validated it empirically across
+three benchmark environments against a controlled random baseline. The DIC achieved
+100\% solve rate in a maze environment where a random policy solved 6\%, 78\%
+survival in a dynamic hazard environment where a random policy survived 0\%, and
+consistent $+$780--1081\% improvement over baseline in Snake.
+
+The safety pipeline was stable across all conditions. Performance was governed by
+utility function design and critical path calibration. Episodic memory via Bayesian
+prior transfer is architecturally sound but requires stochastic, variable, or
+short-session environments to produce measurable improvement over in-session
+Bayesian updating alone.
+
+The DIC enforces the distinction between \textit{intelligence that acts} and
+\textit{intelligence that acts within justifiable bounds} --- making the latter a
+property of the system rather than a property of any particular upstream model.
+
+\bigskip
+\noindent\textbf{Code and replication.}
+All benchmark environments, agent implementations, and experiment runners are
+available at \url{https://github.com/zabinskirafal/AGI-Pragma-Core}.
+
+% ── End ───────────────────────────────────────────────────────────────────────
+\end{document}
