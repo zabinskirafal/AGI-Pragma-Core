@@ -74,25 +74,24 @@ class PragmaMazeAgent:
                 seed_base=self.seed,
             )
 
+            # Blend MC estimate with Beta tracker mean (episodic memory)
+            p_death_adj = 0.7 * cp.p_death + 0.3 * self.timeout_tracker.mean
+            p_trap_adj  = 0.7 * cp.p_trap  + 0.3 * self.dead_end_tracker.mean
+
             # 3. FMEA
-            table = fmea_table(cp.p_death, cp.p_trap)
+            table = fmea_table(p_death_adj, p_trap_adj)
             m_rpn = max_rpn(table)
 
             # 5. Circuit Breaker
             cb = self.circuit_breaker.evaluate(m_rpn)
 
             # 6. Utility
-            # - survival:   reward paths less likely to timeout
-            # - trap avoid: reward paths less likely to enter dead ends
-            # - goal pull:  reward actions that reduce BFS path distance to goal
-            # - revisit:    penalise moving to already-visited cells
-            # - risk drag:  penalise high RPN
             next_pos = self._next_pos(env, a)
             dist = env.bfs_to_goal(next_pos)
             revisits = env.visit_counts.get(next_pos, 0)
             utility = (
-                (1.0 - cp.p_death) * 10.0
-                + (1.0 - cp.p_trap) * 3.0
+                (1.0 - p_death_adj) * 10.0
+                + (1.0 - p_trap_adj) * 3.0
                 - dist * 1.5
                 - revisits * 2.0
                 - (m_rpn / 1000.0)
@@ -100,8 +99,10 @@ class PragmaMazeAgent:
 
             per_action[a] = {
                 "critical_path": {
-                    "p_death": cp.p_death,
-                    "p_trap": cp.p_trap,
+                    "p_death":    p_death_adj,
+                    "p_trap":     p_trap_adj,
+                    "mc_p_death": cp.p_death,
+                    "mc_p_trap":  cp.p_trap,
                     "expected_steps_to_death": cp.expected_steps_to_death,
                 },
                 "fmea": {k: vars(v) for k, v in table.items()},

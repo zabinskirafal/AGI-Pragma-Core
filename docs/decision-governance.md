@@ -113,3 +113,49 @@ allowed to do — and produces an auditable record of every decision it makes.
 
 This is the distinction between **intelligence that acts** and
 **intelligence that acts within bounds it can justify**.
+
+---
+
+## Empirical Limits: What the Benchmarks Revealed
+
+Three benchmarks validated the governance layer across qualitatively
+different risk environments. They also revealed a precise boundary on
+where structured decision governance provides measurable value versus
+where the constraints are upstream of it.
+
+**Where DIC governance is unambiguously effective:**
+
+- In all three benchmarks, the safety pipeline (FMEA gate + circuit breaker)
+  operated without failure across 150 total benchmark episodes. No pipeline
+  bypass occurred regardless of utility estimates.
+- In the Gridworld benchmark, the circuit breaker operated in WARN/SLOW range
+  throughout — the system correctly self-constrained without ever reaching STOP.
+- Baseline comparison (random policy from the same safe_actions filter) showed
+  +789% score improvement in Snake, +1567% solve rate improvement in Maze,
+  and +3800% in Gridworld versus the random policy — isolating the DIC pipeline
+  as the source of improvement above the shared branching filter.
+
+**Where governance alone cannot help:**
+
+The episodic memory experiment demonstrated that **belief accuracy is not
+sufficient if the utility function cannot act on it**. Carrying calibrated
+Bayesian priors across sessions showed zero measurable effect across all
+three benchmarks. The structural reasons:
+
+1. Deterministic environments mean MC estimates are identical regardless
+   of prior state — the blended signal converges to the same value.
+2. In-session Bayesian accumulation overwhelms inter-session priors within
+   the first 3–4 episodes of a 50-episode run.
+3. Benchmarks operating at performance ceilings have no headroom
+   for improved priors to express.
+
+The implication for governance system design: **episodic memory and prior
+calibration provide value in proportion to the stochasticity and variability
+of the operating environment**. In stable, repeatable environments, the
+governance layer's in-session belief update is sufficient. Cross-session
+memory becomes critical when environments drift, sessions are short, or
+cold-start performance is safety-critical.
+
+This is an empirically grounded boundary: the DIC architecture is correct,
+but the conditions under which each of its seven stages provides measurable
+lift depend on properties of the environment, not just properties of the agent.

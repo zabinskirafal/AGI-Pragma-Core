@@ -99,8 +99,12 @@ class PragmaGridworldAgent:
                 seed_base=self.seed,
             )
 
+            # Blend MC estimate with Beta tracker mean (episodic memory)
+            p_death_adj = 0.7 * cp.p_death + 0.3 * self.collision_tracker.mean
+            p_trap_adj  = 0.7 * cp.p_trap  + 0.3 * self.trap_tracker.mean
+
             # 3. FMEA
-            table = fmea_table(cp.p_death, cp.p_trap, immediate_collision=False)
+            table = fmea_table(p_death_adj, p_trap_adj, immediate_collision=False)
             m_rpn = max_rpn(table)
 
             # 5. Circuit Breaker
@@ -114,8 +118,8 @@ class PragmaGridworldAgent:
             revisits  = env.visit_counts.get(eval_pos, 0)
 
             utility = (
-                (1.0 - cp.p_death) * 10.0
-                + (1.0 - cp.p_trap) * 3.0
+                (1.0 - p_death_adj) * 10.0
+                + (1.0 - p_trap_adj) * 3.0
                 - dist      * 1.5
                 - proximity * 1.0
                 - revisits  * 1.0
@@ -124,8 +128,10 @@ class PragmaGridworldAgent:
 
             per_action[a] = {
                 "critical_path": {
-                    "p_death":               cp.p_death,
-                    "p_trap":                cp.p_trap,
+                    "p_death":               p_death_adj,
+                    "p_trap":                p_trap_adj,
+                    "mc_p_death":            cp.p_death,
+                    "mc_p_trap":             cp.p_trap,
                     "expected_steps_to_death": cp.expected_steps_to_death,
                 },
                 "fmea":          {k: vars(v) for k, v in table.items()},

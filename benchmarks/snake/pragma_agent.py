@@ -74,21 +74,32 @@ class PragmaSnakeAgent:
             cp = critical_path_estimate(
                 env, a, rollouts=self.rollouts, depth=self.depth, seed_base=self.seed
             )
-            table = fmea_table(cp.p_death, cp.p_trap, immediate_collision=False)
+
+            # Blend MC estimate with Beta tracker mean (episodic memory)
+            p_death_adj = 0.7 * cp.p_death + 0.3 * self.death_tracker.mean
+            p_trap_adj  = 0.7 * cp.p_trap  + 0.3 * self.trap_tracker.mean
+
+            table = fmea_table(p_death_adj, p_trap_adj, immediate_collision=False)
             m_rpn = max_rpn(table)
 
             cb = self.circuit_breaker.evaluate(m_rpn)
 
             dist = self._food_distance_after(env, a)
             utility = (
-                (1.0 - cp.p_death) * 10.0
-                + (1.0 - cp.p_trap) * 3.0
+                (1.0 - p_death_adj) * 10.0
+                + (1.0 - p_trap_adj) * 3.0
                 - dist * 1.5
                 - (m_rpn / 1000.0)
             )
 
             per_action[a] = {
-                "critical_path": vars(cp),
+                "critical_path": {
+                    "p_death": p_death_adj,
+                    "p_trap":  p_trap_adj,
+                    "mc_p_death": cp.p_death,
+                    "mc_p_trap":  cp.p_trap,
+                    "expected_steps_to_death": cp.expected_steps_to_death,
+                },
                 "fmea": {k: vars(v) for k, v in table.items()},
                 "max_rpn": m_rpn,
                 "circuit_breaker": {
