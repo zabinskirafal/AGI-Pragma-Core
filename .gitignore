@@ -75,5 +75,23 @@ runs/
 !/Assets/StreamingAssets/.gitkeep   # pusty plik żeby folder istniał
 
 # ───────────────────────────────
+# PYTHON
+# ───────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Generated benchmark artifacts (keep memory.json, ignore per-episode summaries)
+artifacts/*/summary_*.json
+
+# ───────────────────────────────
 # KONIEC – wszystko powyżej wrzuć w całości
 # ───────────────────────────────
