@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "agi-pragma"
+version         = "1.0.0"
+description     = "AI Action Firewall — seven-stage Decision Intelligence Core for safe agentic AI"
+readme          = "README.md"
+license         = { text = "Proprietary — see LICENSE" }
+authors         = [{ name = "Rafał Żabiński", email = "zabinskirafal@outlook.com" }]
+requires-python = ">=3.11"
+keywords        = [
+    "ai-safety", "agentic-ai", "llm", "decision-intelligence",
+    "fmea", "risk-assessment", "ai-firewall",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+]
+dependencies = [
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+]
+
+[project.optional-dependencies]
+api  = ["fastapi>=0.100.0", "uvicorn>=0.20.0"]
+llm  = ["anthropic>=0.20.0"]
+dev  = ["pytest>=7.0", "pytest-cov"]
+
+[project.urls]
+Homepage   = "https://github.com/zabinskirafal/AGI-Pragma-Core"
+Repository = "https://github.com/zabinskirafal/AGI-Pragma-Core"
+Paper      = "https://github.com/zabinskirafal/AGI-Pragma-Core/blob/main/docs/arxiv/main.tex"
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["agi_pragma*", "demos*", "core*"]
+exclude = ["artifacts*", "docs*", "config*", "Scripts*"]
