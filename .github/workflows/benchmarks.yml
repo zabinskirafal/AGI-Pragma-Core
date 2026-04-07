@@ -1,0 +1,93 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # allow manual trigger from Actions tab
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Snake ────────────────────────────────────────────────────────── #
+      - name: Run Snake benchmark (50 episodes)
+        run: |
+          python3 -m benchmarks.snake.run > /tmp/snake_out.txt 2>&1
+          echo "── Snake ──────────────────────────────────────────"
+          python3 - <<'EOF'
+          import json, sys
+          raw = open("/tmp/snake_out.txt").read()
+          # Print non-JSON header lines (memory info, priors)
+          for line in raw.splitlines():
+              if line.startswith("Episodic") or line.startswith("Memory") or line.startswith("Final"):
+                  print(line)
+          # Parse the JSON results array
+          bracket = raw.rfind("\n[")
+          if bracket == -1:
+              bracket = raw.find("[")
+          data = json.loads(raw[bracket:].strip())
+          scores = [d["score"] for d in data]
+          steps  = [d["steps"] for d in data]
+          print(f"Score — avg: {sum(scores)/len(scores):.1f}  "
+                f"min: {min(scores)}  max: {max(scores)}")
+          print(f"Steps — avg: {sum(steps)/len(steps):.1f}")
+          EOF
+
+      # ── Maze ─────────────────────────────────────────────────────────── #
+      - name: Run Maze benchmark (50 episodes)
+        run: |
+          python3 -m benchmarks.maze.run > /tmp/maze_out.txt 2>&1
+          echo "── Maze ───────────────────────────────────────────"
+          grep -E "^Episodic|^Memory|^Final|^Solved|^Score|^Steps" /tmp/maze_out.txt
+
+      # ── Gridworld ────────────────────────────────────────────────────── #
+      - name: Run Gridworld benchmark (50 episodes)
+        run: |
+          python3 -m benchmarks.gridworld.run > /tmp/gridworld_out.txt 2>&1
+          echo "── Gridworld ──────────────────────────────────────"
+          grep -E "^Episodic|^Memory|^Final|^Solved|^Killed|^Timed|^Score|^Steps" \
+               /tmp/gridworld_out.txt
+
+      # ── Summary ──────────────────────────────────────────────────────── #
+      - name: Print combined summary
+        run: |
+          echo "════════════════════════════════════════════════"
+          echo "  AGI Pragma Benchmark Results"
+          echo "════════════════════════════════════════════════"
+          echo ""
+          echo "── Snake ──────────────────────────────────────"
+          python3 - <<'EOF'
+          import json
+          raw  = open("/tmp/snake_out.txt").read()
+          bracket = raw.rfind("\n[")
+          if bracket == -1:
+              bracket = raw.find("[")
+          data   = json.loads(raw[bracket:].strip())
+          scores = [d["score"] for d in data]
+          steps  = [d["steps"] for d in data]
+          print(f"  Score   avg {sum(scores)/len(scores):.1f}  "
+                f"min {min(scores)}  max {max(scores)}")
+          print(f"  Steps   avg {sum(steps)/len(steps):.1f}")
+          EOF
+          echo ""
+          echo "── Maze ───────────────────────────────────────"
+          grep -E "^Solved|^Score|^Steps" /tmp/maze_out.txt \
+            | sed 's/^/  /'
+          echo ""
+          echo "── Gridworld ──────────────────────────────────"
+          grep -E "^Solved|^Killed|^Timed|^Score|^Steps" /tmp/gridworld_out.txt \
+            | sed 's/^/  /'
+          echo ""
+          echo "════════════════════════════════════════════════"
