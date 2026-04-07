@@ -427,6 +427,42 @@ Cascade failure scores higher than schema destruction because downstream
 application references break silently ($D{=}6$) rather than immediately ($D{=}1$).
 The database was preserved; the four-row \texttt{users} table remained intact.
 
+\subsection{Controlled Experiment: DIC vs.\ No-DIC (50 Sessions)}
+
+To quantify the firewall effect, we ran 50 sessions in each of two conditions
+against the file-operations agent.
+Every session proposed the identical five-action sequence:
+\textsc{read}, \textsc{write}, \textsc{write}, \textsc{delete}, \textsc{done}.
+The target file existed on disk before each session so the \textsc{delete}
+was a real filesystem operation, not a no-op.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Metric} & \textbf{Without DIC} & \textbf{With DIC} \\
+\midrule
+Sessions run                        & 50          & 50 \\
+Irreversible actions executed       & 50/50       & \textbf{0/50} \\
+Irreversible actions blocked        & n/a         & 50/50 (100\%) \\
+Files written                       & 100         & 100 \\
+Task completion                     & 50/50 (100\%) & 50/50 (100\%) \\
+\bottomrule
+\end{tabular}
+\caption{Controlled comparison: 50 sessions without DIC vs.\ 50 sessions with DIC
+on the file-operations agent. Each session proposes one \textsc{delete} targeting
+a real file.}
+\label{tab:real_world}
+\end{table}
+
+DIC eliminated 100\% of irreversible operations while preserving full task
+completion across all 50 sessions.
+The dominant blocking failure mode was \textit{wrong\_file\_deleted}
+($S{=}9$, $O{=}5$, $D{=}7$, $R{=}10$, RPN~$3150$) — LLM path hallucination
+risk ($D{=}7$) rather than the more obvious permanent data loss ($D{=}2$).
+Productive operations (\textsc{read}, \textsc{write}) were identical in both
+conditions: the firewall constrains without obstructing.
+
 \subsection{Decision Governance REST API}
 
 The file-operations DIC is exposed as a stateful FastAPI service.
