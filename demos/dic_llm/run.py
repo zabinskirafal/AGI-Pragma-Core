@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from .llm_actor   import LLMActor
+from .mock_actor  import MockActor
 from .dic_governor import DICGovernor, DICDecision
 from .executor    import Executor
 from .file_action import FileAction, FileOp
@@ -143,11 +144,11 @@ def print_sandbox_listing(sandbox: Path) -> None:
 
 # ── Main loop ────────────────────────────────────────────────────────── #
 
-def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001") -> None:
+def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001", mock: bool = False) -> None:
     sandbox  = Path(__file__).parent / "sandbox"
     sandbox.mkdir(exist_ok=True)
 
-    actor    = LLMActor(model=model)
+    actor    = MockActor() if mock else LLMActor(model=model)
     governor = DICGovernor()
     executor = Executor(sandbox_root=sandbox)
 
@@ -155,7 +156,7 @@ def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001"
     print(f"{BOLD}{CYAN}  DIC + LLM Agent Demo{RESET}")
     print(f"{BOLD}{CYAN}{'═'*64}{RESET}")
     print(f"  Task:    {task}")
-    print(f"  Model:   {model}")
+    print(f"  Model:   {'[mock]' if mock else model}")
     print(f"  Sandbox: {sandbox}")
     print(f"  Max steps: {max_steps}")
 
@@ -219,8 +220,10 @@ if __name__ == "__main__":
             "Then create a file called 'summary.txt' that summarises notes.txt in one sentence."
         ),
     )
-    parser.add_argument("--max-steps", type=int, default=15)
-    parser.add_argument("--model",     default="claude-haiku-4-5-20251001")
+    parser.add_argument("--max-steps", type=int,  default=15)
+    parser.add_argument("--model",                default="claude-haiku-4-5-20251001")
+    parser.add_argument("--mock",      action="store_true",
+                        help="Use scripted mock actor (no API key required)")
     args = parser.parse_args()
 
-    run(task=args.task, max_steps=args.max_steps, model=args.model)
+    run(task=args.task, max_steps=args.max_steps, model=args.model, mock=args.mock)
