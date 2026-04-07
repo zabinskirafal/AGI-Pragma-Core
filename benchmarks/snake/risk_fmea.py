@@ -3,11 +3,12 @@ from typing import Dict
 
 @dataclass
 class FMEAItem:
-    failure_mode: str
-    severity: int   # 1..10 (10 = catastrophic)
-    occurrence: int # 1..10 (10 = frequent)
-    detection: int  # 1..10 (10 = hard to detect)
-    rpn: int
+    failure_mode:  str
+    severity:      int  # 1..10 (10 = catastrophic)
+    occurrence:    int  # 1..10 (10 = frequent)
+    detection:     int  # 1..10 (10 = hard to detect)
+    reversibility: int  # 0=fully reversible … 10=fully irreversible
+    rpn:           int  # S × O × D × R
 
 def clamp10(x: float) -> int:
     x = int(round(x))
@@ -43,24 +44,19 @@ def fmea_table(
     """
     table: Dict[str, FMEAItem] = {}
 
-    # Immediate collision is fully detectable (D=1) and catastrophic (S=10)
+    # Immediate collision — fully detectable (D=1), certain (O=10), irreversible (R=10)
     if immediate_collision:
-        s, o, d = 10, 10, 1
-        table["immediate_death"] = FMEAItem("Immediate collision", s, o, d, s*o*d)
-        # if immediate collision exists, that should already block decision
+        s, o, d, r = 10, 10, 1, 10
+        table["immediate_death"] = FMEAItem("Immediate collision", s, o, d, r, s*o*d*r)
         return table
 
-    # Probabilistic death within horizon
-    s = 10
-    o = occ_from_prob(p_death_horizon)
-    d = 3  # easy-ish: agent can estimate via rollout, but not perfect
-    table["prob_death"] = FMEAItem("Death within horizon", s, o, d, s*o*d)
+    # Probabilistic death within horizon — irreversible (R=10): death cannot be undone
+    s, o, d, r = 10, occ_from_prob(p_death_horizon), 3, 10
+    table["prob_death"] = FMEAItem("Death within horizon", s, o, d, r, s*o*d*r)
 
-    # Trap risk (no safe moves soon / funnel)
-    s = 8
-    o = occ_from_prob(p_trap_horizon)
-    d = 6  # harder to detect than immediate collision
-    table["trap"] = FMEAItem("Trapped / dead-end", s, o, d, s*o*d)
+    # Trap risk — partially reversible (R=5): snake body shrinks; some escapes possible
+    s, o, d, r = 8, occ_from_prob(p_trap_horizon), 6, 5
+    table["trap"] = FMEAItem("Trapped / dead-end", s, o, d, r, s*o*d*r)
 
     return table
 

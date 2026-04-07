@@ -21,7 +21,7 @@ class DecisionReport:
 class PragmaSnakeAgent:
     def __init__(
         self,
-        fmea_rpn_threshold: int = 240,
+        fmea_rpn_threshold: int = 2400,
         rollouts: int = 200,
         depth: int = 25,
         seed: int = 0,

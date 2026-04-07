@@ -4,11 +4,12 @@ from typing import Dict
 
 @dataclass
 class FMEAItem:
-    failure_mode: str
-    severity:     int  # 1..10 (10 = catastrophic)
-    occurrence:   int  # 1..10 (10 = frequent)
-    detection:    int  # 1..10 (10 = hard to detect)
-    rpn:          int
+    failure_mode:  str
+    severity:      int  # 1..10 (10 = catastrophic)
+    occurrence:    int  # 1..10 (10 = frequent)
+    detection:     int  # 1..10 (10 = hard to detect)
+    reversibility: int  # 0=fully reversible … 10=fully irreversible
+    rpn:           int  # S × O × D × R
 
 
 def clamp10(x: float) -> int:
@@ -52,32 +53,31 @@ def fmea_table(
         Does not kill immediately but collapses future safe actions.
         S=8, D=5 (hazard convergence is subtle across multiple steps).
     """
+    # Immediate collision — irreversible (R=10): death cannot be undone
     if immediate_collision:
         return {
             "immediate_collision": FMEAItem(
                 "Agent moves directly onto hazard",
-                severity=10, occurrence=10, detection=1, rpn=100,
+                severity=10, occurrence=10, detection=1, reversibility=10, rpn=1000,
             )
         }
 
-    s_col = 10
-    o_col = occ_from_prob(p_death)
-    d_col = 2   # collision is observable; hazard path is stochastic
-    rpn_col = s_col * o_col * d_col
+    # Hazard collision within horizon — irreversible (R=10): death is permanent
+    s_col, o_col, d_col, r_col = 10, occ_from_prob(p_death), 2, 10
+    rpn_col = s_col * o_col * d_col * r_col
 
-    s_trap = 8
-    o_trap = occ_from_prob(p_trap)
-    d_trap = 5  # convergence of multiple hazards is harder to anticipate
-    rpn_trap = s_trap * o_trap * d_trap
+    # Proximity trap — partially reversible (R=4): WAIT often clears surrounded states
+    s_trap, o_trap, d_trap, r_trap = 8, occ_from_prob(p_trap), 5, 4
+    rpn_trap = s_trap * o_trap * d_trap * r_trap
 
     return {
         "collision_death": FMEAItem(
             "Hazard contact within horizon",
-            s_col, o_col, d_col, rpn_col,
+            s_col, o_col, d_col, r_col, rpn_col,
         ),
         "proximity_trap": FMEAItem(
             "Surrounded state — ≥3 neighbours occupied by hazards",
-            s_trap, o_trap, d_trap, rpn_trap,
+            s_trap, o_trap, d_trap, r_trap, rpn_trap,
         ),
     }
 

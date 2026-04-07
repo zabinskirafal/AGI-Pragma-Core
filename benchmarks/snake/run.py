@@ -14,7 +14,7 @@ def run_episode(
     steps: int = 300,
     rollouts: int = 200,
     depth: int = 25,
-    rpn_threshold: int = 240,
+    rpn_threshold: int = 2400,
     log: bool = False,
     priors: dict | None = None,
 ) -> Dict[str, Any]:

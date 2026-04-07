@@ -4,11 +4,12 @@ from typing import Dict
 
 @dataclass
 class FMEAItem:
-    failure_mode: str
-    severity: int    # 1..10 (10 = catastrophic)
-    occurrence: int  # 1..10 (10 = frequent)
-    detection: int   # 1..10 (10 = hard to detect)
-    rpn: int
+    failure_mode:  str
+    severity:      int  # 1..10 (10 = catastrophic)
+    occurrence:    int  # 1..10 (10 = frequent)
+    detection:     int  # 1..10 (10 = hard to detect)
+    reversibility: int  # 0=fully reversible … 10=fully irreversible
+    rpn:           int  # S × O × D × R
 
 
 def clamp10(x: float) -> int:
@@ -45,24 +46,22 @@ def fmea_table(
     Note: there is no immediate_collision path in maze — wall hits are no-ops filtered
     at the branching stage. All risk here is probabilistic, not immediate.
     """
-    s_timeout = 9
-    o_timeout = occ_from_prob(p_timeout)
-    d_timeout = 3   # rollouts make this estimable
-    rpn_timeout = s_timeout * o_timeout * d_timeout
+    # Timeout — near-irreversible (R=9): step budget cannot be recovered
+    s_t, o_t, d_t, r_t = 9, occ_from_prob(p_timeout), 3, 9
+    rpn_timeout = s_t * o_t * d_t * r_t
 
-    s_dead_end = 7
-    o_dead_end = occ_from_prob(p_dead_end)
-    d_dead_end = 6  # dead ends are structurally subtle — corridor looks passable
-    rpn_dead_end = s_dead_end * o_dead_end * d_dead_end
+    # Dead-end — reversible (R=3): wall hits are no-ops; backtracking always valid
+    s_d, o_d, d_d, r_d = 7, occ_from_prob(p_dead_end), 6, 3
+    rpn_dead_end = s_d * o_d * d_d * r_d
 
     return {
         "timeout_failure": FMEAItem(
             "Timeout — goal not reached within step budget",
-            s_timeout, o_timeout, d_timeout, rpn_timeout,
+            s_t, o_t, d_t, r_t, rpn_timeout,
         ),
         "dead_end_trap": FMEAItem(
             "Dead-end corridor — forced costly backtrack",
-            s_dead_end, o_dead_end, d_dead_end, rpn_dead_end,
+            s_d, o_d, d_d, r_d, rpn_dead_end,
         ),
     }
 

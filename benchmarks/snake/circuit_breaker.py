@@ -9,9 +9,9 @@ class CBState(Enum):
 
 @dataclass
 class CircuitBreakerConfig:
-    warn_rpn: int = 180
-    slow_rpn: int = 220
-    stop_rpn: int = 260
+    warn_rpn: int = 1800
+    slow_rpn: int = 2200
+    stop_rpn: int = 2600
 
 @dataclass
 class CircuitBreakerResult:

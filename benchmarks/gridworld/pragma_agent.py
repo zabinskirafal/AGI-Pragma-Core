@@ -38,7 +38,7 @@ class PragmaGridworldAgent:
 
     def __init__(
         self,
-        fmea_rpn_threshold:    int = 240,
+        fmea_rpn_threshold:    int = 2400,
         rollouts:              int = 200,
         depth:                 int = 50,
         seed:                  int = 0,
