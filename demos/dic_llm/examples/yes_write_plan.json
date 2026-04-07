@@ -1,0 +1,90 @@
+{
+  "approved": true,
+  "block_reason": null,
+  "max_rpn": 420,
+  "utility": 6.08,
+  "bayes": {
+    "llm_risk_mean": 0.25
+  },
+  "action": {
+    "op": "write",
+    "path": "plan.md",
+    "content": "# Project Plan\n\n## Goals\n- Deliver MVP by Q3\n- Onboard 3 pilot customers\n\n## Milestones\n1. Architecture design (week 1-2)\n2. Core implementation (week 3-6)\n3. Testing & QA (week 7-8)\n4. Pilot launch (week 9)\n",
+    "reason": "Write the project plan with milestones"
+  },
+  "critical_path": {
+    "reversibility": "low",
+    "file_exists": false,
+    "path_depth": 9,
+    "content_size": 208,
+    "side_effects": [
+      "New file will be created \u2014 easily deleted if wrong"
+    ],
+    "p_irreversible": 0.1
+  },
+  "fmea": {
+    "unintended_write": {
+      "failure_mode": "File created/modified with incorrect content",
+      "severity": 4,
+      "occurrence": 5,
+      "detection": 7,
+      "reversibility": 3,
+      "rpn": 420
+    }
+  },
+  "circuit_breaker": {
+    "state": "ok",
+    "reason": "OK"
+  },
+  "stage_log": [
+    {
+      "stage": "branching",
+      "pass": true,
+      "detail": "PASS \u2014 '/Users/rafalzabinski/Desktop/AGI-main/demos/dic_llm/sandbox/plan.md' is within sandbox"
+    },
+    {
+      "stage": "critical_path",
+      "reversibility": "low",
+      "file_exists": false,
+      "p_irreversible": 0.1,
+      "side_effects": [
+        "New file will be created \u2014 easily deleted if wrong"
+      ]
+    },
+    {
+      "stage": "fmea",
+      "table": {
+        "unintended_write": {
+          "failure_mode": "File created/modified with incorrect content",
+          "severity": 4,
+          "occurrence": 5,
+          "detection": 7,
+          "reversibility": 3,
+          "rpn": 420
+        }
+      },
+      "max_rpn": 420
+    },
+    {
+      "stage": "decision_gate",
+      "max_rpn": 420,
+      "threshold": 2400,
+      "blocked": false
+    },
+    {
+      "stage": "circuit_breaker",
+      "state": "ok",
+      "reason": "OK"
+    },
+    {
+      "stage": "utility",
+      "score": 6.08
+    },
+    {
+      "stage": "belief_update",
+      "risky_signal": false,
+      "llm_risk_mean": 0.25,
+      "beta": "Beta(a=1.0, b=3.0, mean=0.250)"
+    }
+  ]
+}

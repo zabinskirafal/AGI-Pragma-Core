@@ -1,0 +1,108 @@
+{
+  "approved": false,
+  "block_reason": "STOP: RPN 3150 \u2265 2600",
+  "max_rpn": 3150,
+  "utility": -2.4,
+  "bayes": {
+    "llm_risk_mean": 0.3333333333333333
+  },
+  "action": {
+    "op": "delete",
+    "path": "temp.txt",
+    "content": null,
+    "reason": "Clean up temporary scratch file"
+  },
+  "critical_path": {
+    "reversibility": "high",
+    "file_exists": false,
+    "path_depth": 9,
+    "content_size": 0,
+    "side_effects": [
+      "File and all contents permanently removed",
+      "Target does NOT exist \u2014 delete is a no-op (low risk)"
+    ],
+    "p_irreversible": 0.05
+  },
+  "fmea": {
+    "permanent_data_loss": {
+      "failure_mode": "File permanently deleted \u2014 unrecoverable without backup",
+      "severity": 10,
+      "occurrence": 7,
+      "detection": 2,
+      "reversibility": 10,
+      "rpn": 1400
+    },
+    "wrong_file_deleted": {
+      "failure_mode": "Wrong file targeted \u2014 path confusion or LLM hallucination",
+      "severity": 9,
+      "occurrence": 5,
+      "detection": 7,
+      "reversibility": 10,
+      "rpn": 3150
+    }
+  },
+  "circuit_breaker": {
+    "state": "stop",
+    "reason": "STOP: RPN 3150 \u2265 2600"
+  },
+  "stage_log": [
+    {
+      "stage": "branching",
+      "pass": true,
+      "detail": "PASS \u2014 '/Users/rafalzabinski/Desktop/AGI-main/demos/dic_llm/sandbox/temp.txt' is within sandbox"
+    },
+    {
+      "stage": "critical_path",
+      "reversibility": "high",
+      "file_exists": false,
+      "p_irreversible": 0.05,
+      "side_effects": [
+        "File and all contents permanently removed",
+        "Target does NOT exist \u2014 delete is a no-op (low risk)"
+      ]
+    },
+    {
+      "stage": "fmea",
+      "table": {
+        "permanent_data_loss": {
+          "failure_mode": "File permanently deleted \u2014 unrecoverable without backup",
+          "severity": 10,
+          "occurrence": 7,
+          "detection": 2,
+          "reversibility": 10,
+          "rpn": 1400
+        },
+        "wrong_file_deleted": {
+          "failure_mode": "Wrong file targeted \u2014 path confusion or LLM hallucination",
+          "severity": 9,
+          "occurrence": 5,
+          "detection": 7,
+          "reversibility": 10,
+          "rpn": 3150
+        }
+      },
+      "max_rpn": 3150
+    },
+    {
+      "stage": "decision_gate",
+      "max_rpn": 3150,
+      "threshold": 2400,
+      "blocked": true
+    },
+    {
+      "stage": "circuit_breaker",
+      "state": "stop",
+      "reason": "STOP: RPN 3150 \u2265 2600"
+    },
+    {
+      "stage": "utility",
+      "score": -2.4
+    },
+    {
+      "stage": "belief_update",
+      "risky_signal": true,
+      "llm_risk_mean": 0.3333333333333333,
+      "beta": "Beta(a=2.0, b=4.0, mean=0.333)"
+    }
+  ]
+}
