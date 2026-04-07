@@ -1,30 +1,32 @@
 # AGI Pragma
-**Decision Intelligence Framework for Controlled Autonomy under Uncertainty**
+**AI Action Firewall — Safe execution layer for AI agents**
 
-> *Intelligence as iterative decision-making, not opaque optimization.*
+> AGI Pragma prevents AI agents from executing dangerous actions before they happen.
 
 ---
 
 ## Overview
 
-**AGI Pragma** is a research framework for **decision intelligence under dynamic and uncertain environments**.
+**AGI Pragma** is an **AI Action Firewall**: a structured pre-execution governance layer that sits between an AI agent and the real world, evaluating every proposed action for risk before it is allowed to execute.
 
 It does **not** attempt to replicate human cognition, consciousness, or emotions.  
-Instead, it formalizes **human-like adaptive decision mechanisms**:
-filtering reality, assessing risk, and updating beliefs **before acting**.
+Instead, it enforces **systematic risk evaluation** at the point of action:
+filtering proposals, scoring failure modes, and blocking irreversible operations
+**before they cause harm**.
 
-> Intelligent behavior emerges from systematically **constraining decisions**
-> under uncertainty — not from unconstrained optimization.
+> An AI agent that cannot delete a database table it shouldn't delete,
+> overwrite a file it shouldn't overwrite, or execute a command it shouldn't execute
+> — not because it was prompted to behave, but because a hard enforcement layer blocked it.
 
 ---
 
 ## What AGI Pragma Is / Is Not
 
 ### AGI Pragma IS
-- a methodology-first framework for risk-aware autonomy
-- a **Decision Intelligence Core (DIC)** built around explicit decision gates
-- a research artifact with reproducible benchmarks and auditable traces
-- a foundation for safety-oriented autonomous systems
+- an **AI Action Firewall** — hard pre-execution enforcement for agentic AI systems
+- a **Decision Intelligence Core (DIC)** built around explicit, auditable decision gates
+- a research artifact with reproducible benchmarks and full audit traces per decision
+- a foundation for safety-oriented autonomous systems and LLM agent governance
 
 ### AGI Pragma IS NOT
 - a human-like AGI
