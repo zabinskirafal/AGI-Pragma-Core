@@ -3,6 +3,8 @@
 Honest accounting of what DIC gets wrong, what it misses, and where
 it cannot be trusted without additional safeguards.
 
+> Known issues are tracked here. Contributions and fixes welcome via [GitHub issues](https://github.com/zabinskirafal/AGI-Pragma-Core/issues).
+
 ---
 
 ## 1 — False Positives (blocks that shouldn't happen)
