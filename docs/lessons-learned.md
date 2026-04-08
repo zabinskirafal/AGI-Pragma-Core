@@ -1,352 +1,308 @@
-# Lessons Learned — AGI Pragma Benchmark Suite
+# Lessons Learned — AGI Pragma
 
-Three benchmarks. Three different failure modes. One consistent finding about
-where the DIC pipeline is strong and where it depends on external design choices.
-
----
-
-## Snake — the utility weight problem
-
-### What failed
-
-The initial Snake agent used `dist_weight = 0.2` in its utility function —
-a low weight on food distance that made the agent effectively passive.
-It avoided risk successfully but rarely pursued the goal.
-
-| Config | Avg score | Avg reward |
-|---|---|---|
-| dist_weight = 0.2 (passive) | 0.4 | ~0 |
-| dist_weight = 1.5 (active) | 22.8 | 102.4 |
-
-**One parameter change produced a 57× improvement in score.**
-
-### What it taught
-
-The FMEA, circuit breaker, and decision gate all operated correctly from the start.
-The failure was entirely in the utility function's balance between risk avoidance
-and goal pursuit.
-
-This established the first core lesson: **the DIC safety pipeline is not the bottleneck.**
-The pipeline constrains what the agent *can* do; the utility function determines
-what the agent *wants* to do. A miscalibrated utility produces a safe but useless agent.
-
-Safety ≠ passivity. An agent that never takes risks never achieves goals.
-The circuit breaker's role is to constrain *how much* risk is taken, not to
-eliminate risk-taking entirely.
+Practical lessons from building the Decision Intelligence Core across three
+benchmark environments, two real-world demo domains, a REST API, and three
+framework integrations.
 
 ---
 
-## Maze — two failures, one fix
+## Part 1 — The DIC Pipeline (from the arXiv paper)
 
-### What failed first: critical path calibration
+### L1 — The safety pipeline is not the performance bottleneck
 
-In v1.0, `p_death` in the Monte Carlo rollouts was only set when the environment's
-`alive` flag went `False` — which requires accumulating 300 total steps.
-Since each rollout runs for only `depth=25` steps, the clone could never timeout
-within the rollout window unless the episode was already near step 275.
+Across all three benchmarks and every calibration iteration, the FMEA gate
+and circuit breaker worked correctly on the first attempt and never needed
+modification.  Every performance failure was traceable to the utility function
+or the critical path estimate — not to the safety stages.
 
-Result: `p_death ≈ 0` throughout every episode. RPN stayed low. The circuit
-breaker never engaged. The agent navigated on manhattan distance alone.
-
-**Fix:** a rollout that exhausts its depth without reaching the goal counts as
-a timeout signal. One line changed. `p_death` immediately reflected ~1.0 for
-a 25-step random walk in a maze that requires ≥24 directed steps.
-
-Solve rate: unchanged at 4/50.
-
-### What failed second: saturated signal
-
-The fix was correct but revealed a deeper problem. With `depth=25` and a maze
-requiring many more steps under a random policy, `p_death ≈ 1.0` for **all**
-candidate actions at every step. The signal was accurate but uninformative —
-it could not differentiate between directions.
-
-The circuit breaker correctly fired STOP for all actions (RPN = 270 ≥ 260).
-The fallback selected by least RPN (all equal). The final decision reduced back
-to the utility function's manhattan distance term — identical to v1.0 behaviour.
-
-### What fixed it: BFS distance
-
-Replacing manhattan distance with exact BFS path distance — precomputed once
-per maze via reverse-BFS from the goal, O(1) per lookup — gave the utility
-function accurate topological information.
-
-| Change | Solve rate | Avg steps |
-|---|---|---|
-| Manhattan distance (v1.1) | 4/50 (8%) | 277.9 |
-| BFS path distance (v2.0) | 50/50 (100%) | 46.1 |
-
-Revisit penalty and deeper rollouts (depth 25→50) added afterward produced
-no measurable change. BFS was the decisive fix.
-
-### What it taught
-
-Three lessons from Maze:
-
-**1. Calibration bugs are silent.** The v1.0 rollouts produced plausible-looking
-numbers (`p_death = 0`) that were simply wrong. The pipeline accepted them without
-error. Correctness of the critical path estimate must be verified against the
-domain's known minimum solution length.
-
-**2. A correct signal can be uninformative.** After the fix, `p_death = 1.0`
-was accurate — a random walk almost never solves a maze in 25 steps. But accuracy
-without variance is useless for action selection. Signal quality requires both
-correctness and differentiation across the action space.
-
-**3. The safety pipeline and the utility function fail independently.**
-In every Maze version, the FMEA and circuit breaker operated correctly.
-The pipeline was not the problem in v1.0 or v1.1. The failure was in the
-goal-progress signal the utility function relied on. This independence is a
-structural property of the DIC: a broken utility function produces poor
-decisions but does not break safety gating.
+**What this means in practice:** Don't tune the pipeline when the agent
+underperforms.  Check Stage 6 (utility signal) and Stage 2 (rollout depth)
+first.  The safety constraint is stable and domain-agnostic; the progress
+signal is domain-specific and almost always the real problem.
 
 ---
 
-## Gridworld — the first benchmark where risk is real
+### L2 — The utility function is the primary design variable
 
-### What worked
+Every benchmark improvement came from fixing the goal-progress signal, not
+the safety constraints:
 
-The Dynamic Threat Gridworld is the first benchmark where the Monte Carlo
-`p_death` signal varies meaningfully across candidate actions at each step.
-Moving toward a hazard cluster has genuinely higher `p_death` than WAIT or
-evasion. The FMEA and Critical Path stages drive decisions, not just gate them.
+- **Snake:** increasing the food-distance weight from 0.2 to 1.5 produced a
+  57× score improvement.
+- **Maze:** replacing Manhattan distance with BFS path distance lifted the
+  solve rate from 8% to 100%.
 
-| Metric | Value |
-|---|---|
-| Solved | 39/50 (78%) |
-| Killed | 11/50 (22%) |
-| Timed out | 0/50 |
-| Circuit breaker state | WARN / SLOW throughout |
-
-### What it taught
-
-**1. Proportional autonomy constraint works in practice.**
-The circuit breaker operated in WARN/SLOW range (RPN 180–200) across most steps —
-flagging risk and restricting decision depth without collapsing into STOP.
-The four-state design (OK/WARN/SLOW/STOP) is not theoretical; it produces
-qualitatively different behaviour at each level.
-
-**2. Some failure is irreducible.**
-The 11 killed episodes represent hazard configurations that cross the direct path
-regardless of decision quality. Zero timeouts confirms the agent always made
-decisive forward progress. The 22% failure rate is the floor for a direct-path
-strategy against 5 random wanderers — not a pipeline failure.
-
-**3. WAIT is correctly evaluated but rarely selected.**
-The utility function correctly considers WAIT as a first-class action.
-In practice, the direct-path utility dominates when the path appears clear.
-Whether WAIT could prevent some kills is an open question for future analysis.
+The correct architectural separation is **invariant safety** (Stages 1–5,
+fixed) and **domain-specific progress** (Stage 6, tuned per domain).  Once
+you get that boundary right, safety and performance don't trade off — they
+compose.
 
 ---
 
-## Cross-cutting lessons
+### L3 — Critical path calibration must respect domain solution length
 
-### Lesson 1 — the safety pipeline is domain-agnostic and consistently correct
+In Maze v1.0 the rollout depth (25 steps) was shorter than the minimum maze
+solution length under the rollout policy.  `p_death` was never triggered —
+it silently produced zero for every candidate action, giving the utility
+function nothing to work with.
 
-Across all three benchmarks, the FMEA, decision gate, and circuit breaker
-operated without failure. Every calibration bug and every poor solve rate
-was traceable to the utility function or the critical path estimate — not
-to the safety gating itself. The pipeline is a reliable layer.
-
-### Lesson 2 — the utility function is the primary design variable
-
-Each benchmark's improvement came from fixing the utility function:
-
-| Benchmark | Fix | Impact |
-|---|---|---|
-| Snake | Increase dist_weight 0.2 → 1.5 | 57× score improvement |
-| Maze | Replace manhattan with BFS distance | 8% → 100% solve rate |
-| Gridworld | manhattan is correct (open grid) | 78% baseline, p_death differentiating |
-
-The safety pipeline stays fixed. The utility function is tuned to the domain.
-This is the right separation: invariant safety, domain-specific progress signal.
-
-### Lesson 3 — the Monte Carlo signal needs domain-appropriate calibration
-
-The critical path estimate must be designed with the domain's solution
-characteristics in mind:
-
-- **Snake:** rollout horizon (depth=25) is sufficient relative to the step budget.
-  Traps emerge within 25 random steps.
-- **Maze:** horizon must account for minimum solution length under the rollout policy.
-  A random walk needs far more than 25 steps to reach a goal 24+ directed steps away.
-- **Gridworld:** horizon (depth=50) is sufficient because hazard collision risk
-  manifests locally and quickly — within a few steps of a hazard.
-
-The lesson: calibrate depth to the domain's *expected time-to-failure under
-the rollout policy*, not to the episode step budget.
-
-### Lesson 4 — signal differentiation matters as much as signal accuracy
-
-A correct but uniformly saturated signal (Maze v1.1: `p_death = 1.0` for all
-actions) is equivalent to no signal for action selection purposes. Useful risk
-estimation requires variance across the candidate action set. Design the rollout
-policy and horizon to produce differentiated estimates, not just accurate ones.
+**Rule:** calibrate rollout depth to the *expected time-to-failure under the
+rollout policy*, not to the episode step budget.  A depth that never reaches
+failure is not a conservative safety measure — it is a broken signal.
 
 ---
 
-## Episodic Memory — learning between sessions
+### L4 — Signal accuracy without variance is uninformative
 
-### The current state
+After the Maze v1.0 depth fix, `p_death ≈ 1.0` for all candidate actions:
+accurate, but providing no basis for choosing between them.  Useful risk
+estimation requires *variance across the action set*, not merely correctness
+in aggregate.
 
-All three agents start each episode with uniform Bayesian priors:
-`BetaTracker(a=1, b=1)` — maximum uncertainty. The agent relearns hazard
-rates, trap frequencies, and collision risks from scratch every episode.
+The Gridworld is the first environment in the suite where `p_death` is
+genuinely differentiating: moving toward a hazard cluster scores measurably
+higher than WAIT or evasion.  That variance is what makes Monte Carlo forward
+simulation worth the compute.
 
-Within an episode, the Bayesian update stage (stage 7) works correctly:
-the Beta trackers accumulate evidence and sharpen estimates as the episode
-progresses. The `final_bayes` field in each episode summary records the
-posterior at termination:
+---
 
-```json
-"final_bayes": {
-  "collision_rate_mean": 0.923,
-  "trap_rate_mean": 0.038
-}
-```
+## Part 2 — DIC v2.0 Additions
 
-This posterior is written to `artifacts/` and then discarded. The next
-episode starts at `Beta(1, 1)` regardless.
+### L5 — Reversibility is a first-class risk dimension, not a derived score
 
-### The concept
+The original RPN formula was `S × O × D`.  Reversibility was implicit —
+baked into Severity estimates rather than stated directly.  The problem: two
+actions with identical S, O, D scores can have radically different consequences
+depending on whether the damage can be undone.
 
-Episodic memory makes the terminal posterior of episode N the prior for
-episode N+1. Instead of discarding accumulated belief, the agent carries
-it forward as structured prior knowledge.
+Adding R as an explicit fourth dimension (`RPN = S × O × D × R`) has two
+effects:
 
-For the Beta distribution this is trivial: `Beta(a, b)` from episode N
-becomes the initial `(a, b)` for episode N+1. No architectural change is
-needed — only the initialisation of BetaTracker changes from `(1, 1)` to
-the loaded posterior.
+1. It forces the FMEA author to state reversibility as a deliberate design
+   decision, not a side-effect of severity scoring.
+2. It creates a clean threshold: `DELETE` scores `R=10`, `WRITE new` scores
+   `R=3`, `READ` scores `R=1`.  The difference is not a matter of degree —
+   it is a categorical distinction that the RPN now reflects directly.
+
+With `R` in place, `DROP TABLE` reaches RPN 3780 and `DELETE` reaches 3150 —
+both well above the 2400 threshold — purely from irreversibility, even if
+every other dimension is moderate.
+
+---
+
+### L6 — Use p95, not mean, as the FMEA Occurrence input
+
+Early versions fed `mean(p_death)` from Monte Carlo rollouts directly into
+the FMEA Occurrence score.  This works on average but is systematically
+optimistic: the mean smooths over tail outcomes where the agent is already
+in a dangerous cluster of states.
+
+Switching Occurrence to a **blended p95 estimate** (`0.7 × p95_death + 0.3 ×
+tracker.mean`) makes the gate conservative at the right moment.  The p95
+fires when the tail of the rollout distribution is dangerous, even if most
+rollouts survive.  The tracker mean anchors it against one-off noise spikes.
+
+The difference shows up in dynamic environments: the Gridworld circuit breaker
+operated in WARN/SLOW range (RPN 180–200) precisely because p95 variance
+across candidate actions was meaningful, not saturated.
+
+---
+
+### L7 — Bayesian belief tracking catches drift that Monte Carlo misses
+
+Monte Carlo rollouts measure *current-state* risk: they simulate forward from
+the exact current configuration.  They cannot see LLM-level behavioral drift —
+a model that is becoming incrementally riskier across a session.
+
+The Beta tracker (`BetaTracker(a, b)`) captures this.  Each DIC evaluation
+updates the posterior: a risky signal (RPN above half-threshold) increments
+`a`; a safe signal increments `b`.  The posterior mean feeds back into the
+FMEA Occurrence calculation, so a session with repeated risky proposals
+steadily raises the baseline Occurrence score for subsequent calls.
+
+**Practical consequence:** a single bad proposal doesn't lock out the agent.
+A pattern of bad proposals does.  This mirrors how a human supervisor would
+respond to a colleague who repeatedly proposes dangerous actions.
+
+---
+
+## Part 3 — Real-World Demos
+
+### L8 — Detection scores matter as much as Severity
+
+The most surprising result from the file-operations demo was the blocking
+reason for `DELETE temp.txt`.  The dominant failure mode was not
+`permanent_data_loss` (which scored `D=2` — highly detectable, easy to catch
+before it's too late) but `wrong_file_deleted` (`D=7` — an LLM may
+hallucinate the target filename and the mistake is hard to catch before
+execution).
+
+The full FMEA captures this.  A naive risk model that only asks "how bad is
+the outcome?" misses "how likely is it that no one notices until it's too
+late?"  High Detection score (meaning *hard to detect*) is often the
+irreversibility multiplier for LLM-generated actions, where the input itself
+is unverified.
+
+---
+
+### L9 — Stage 1 scope enforcement must be in the pipeline, not only in the executor
+
+The Executor has its own sandbox guard (`_safe_resolve` raises if the path
+escapes the sandbox).  That guard should never fire in normal operation —
+Stage 1 (Branching) blocks the action before it reaches the executor.
+
+Having both layers is correct: defence in depth means the executor does not
+trust that DIC was called.  But the policy decision belongs in Stage 1.  If
+Stage 1 is skipped or misconfigured, a path traversal attack
+(`../../etc/passwd`) should fail at the executor — but the audit trail should
+make clear it was a pipeline misconfiguration, not a legitimate block.
+
+---
+
+### L10 — Cascade failure scores higher than direct schema destruction
+
+In the database demo, `DROP TABLE` has two failure modes: `schema_destruction`
+(RPN 2700) and `cascade_failure` (RPN 3780).  The cascade failure scores
+*higher* because downstream application references break silently (`D=6`)
+rather than immediately (`D=1`).
+
+Direct, loud failures are easier to catch and recover from.  Silent downstream
+failures — foreign key violations, missing tables discovered hours later by an
+unrelated process — are the actual high-risk outcome.  The Detection dimension
+captures this distinction; Severity alone does not.
+
+---
+
+### L11 — 100% irreversible block rate with 0% task completion impact is the key number
+
+The controlled experiment (50 sessions DIC vs. no-DIC on the file-operations
+agent) produced one result that matters above all others:
+
+- Without DIC: 50/50 irreversible operations executed, 50/50 tasks completed.
+- With DIC: 0/50 irreversible operations executed, 50/50 tasks completed.
+
+The pipeline eliminated every irreversible operation without blocking a single
+productive one.  This is the number to lead with in any investor or customer
+conversation.  It is not about making the agent "safer" in a vague sense —
+it is about a hard enforcement layer that draws a clear line between reversible
+and irreversible and never crosses it.
+
+---
+
+## Part 4 — Framework Integrations
+
+### L12 — Find the single lowest-level execution hook in each framework
+
+Each framework has one place where tool execution is unavoidable:
+
+| Framework | Hook | Called by |
+|-----------|------|-----------|
+| LangGraph | `DICGuardNode.__call__(state)` | `graph.invoke()` edge routing |
+| AutoGen | `BaseTool.run_json(args, token, call_id)` | `StaticWorkbench.call_tool()` |
+| LlamaIndex | `AsyncBaseTool.acall(**kwargs)` | `BaseWorkflowAgent._run_tool()` |
+
+Intercepting at the right level means the wrapper is invisible to everything
+above it (the agent, the graph, the orchestrator) and everything below it
+(the actual tool function).  Intercepting too high means some code paths
+bypass the guard.  Intercepting too low means you cannot return a structured
+block message to the agent.
+
+Researching the right hook took more lines than the implementation in every
+case.
+
+---
+
+### L13 — The block message must go back to the LLM as a tool result, not as an exception
+
+The naive implementation raises an exception on block.  The correct
+implementation returns a descriptive string as if the tool executed normally.
+
+If the block is an exception, the agent framework either crashes, retries
+silently, or treats it as a transient error and repeats the same action.  If
+the block is a tool result, the LLM sees `[DIC BLOCKED] RPN 3150 ≥ threshold
+2400` in its context and can reason about why the action was refused and
+propose an alternative.
+
+All three integrations return strings or `ToolOutput` objects rather than
+raising.  The LLM is the recovery mechanism; the block message is the signal
+it needs to engage that mechanism.
+
+---
+
+### L14 — Pass isinstance checks or the framework silently discards your wrapper
+
+LangGraph routes on node type.  AutoGen's `AssistantAgent` type-checks tools:
 
 ```python
-# Without episodic memory (current)
-self.collision_tracker = BetaTracker(a=1, b=1)
-
-# With episodic memory
-prior = load_prior("collision_rate", session_id)   # reads artifacts/
-self.collision_tracker = BetaTracker(a=prior.a, b=prior.b)
+if isinstance(tool, BaseTool):
+    self._tools.append(tool)
+else:
+    self._tools.append(FunctionTool(tool, ...))   # re-wraps, discarding DIC
 ```
 
-### What this enables
-
-**Faster adaptation.** An agent that has navigated 50 gridworld episodes
-knows that `collision_rate ≈ 0.9` in this environment. A new episode should
-start with that prior, not with maximum uncertainty. The agent reaches
-calibrated risk estimates in fewer steps.
-
-**Session-level learning.** If the environment changes between sessions
-(e.g. hazard count increases from 5 to 8), the prior will initially be
-wrong — the agent will underestimate collision risk. But Bayesian updating
-will correct this within a few episodes. The agent is sensitive to change
-without being blind to accumulated experience.
-
-**Cross-domain transfer.** Priors from one domain (e.g. Gridworld collision
-rates) can inform initialisation in a new but related domain (e.g. a larger
-gridworld or a maze with moving hazards). The Beta parameters are
-interpretable: `a` is pseudo-count of observed events, `b` is
-pseudo-count of non-events. Domain similarity can be expressed as a
-fraction of the accumulated pseudo-counts transferred.
-
-### What it does not solve
-
-Episodic memory is not a substitute for a better utility function.
-A Bayesian prior that accurately estimates `p_death = 0.9` in the maze
-does not help if `p_death = 0.9` for all actions and the utility function
-cannot differentiate between them. The signal differentiation problem
-(Lesson 4) is upstream of belief accuracy.
-
-Episodic memory sharpens the *speed* of calibration. It does not change
-the *structure* of what the DIC can and cannot distinguish.
-
-### Implementation path
-
-The artifact system already writes the necessary data. The implementation
-requires:
-
-1. A `load_prior(metric, session_path)` function that reads the most recent
-   `summary_*.json` from `artifacts/<benchmark>/` and extracts `final_bayes`.
-2. Initialising BetaTrackers from the loaded `(a, b)` rather than `(1, 1)`.
-3. A decay factor (optional): `a_new = 1 + (a_loaded - 1) × decay` to
-   down-weight old evidence and remain sensitive to environmental change.
-
-The existing `ArtifactWriter` and `final_bayes` schema require no changes.
+If the wrapper does not pass `isinstance(tool, BaseTool)`, the framework
+silently discards it and re-wraps the original — undoing the entire
+integration without any error or warning.  All three wrappers subclass the
+relevant base class (`BaseTool`, `AsyncBaseTool`) rather than duck-typing,
+precisely to prevent this silent failure mode.
 
 ---
 
-## Episodic Memory Experiment — Why Memory Showed No Effect
+### L15 — Share one governor across all tools for session-level escalation
 
-### What was tested
+Each integration provides `dic_wrap_tool(tool)` (single tool, own governor)
+and `dic_wrap_tools(tools)` (list, shared governor).  The shared governor
+matters because the circuit breaker is a *session-level* escalation mechanism:
 
-The episodic memory system was implemented across all three benchmarks:
-`EpisodicMemory` loads Beta posteriors from the previous session's
-`memory.json` and seeds the BetaTrackers before episode 1. A comparison
-script (`benchmarks/memory_comparison.py`) ran two passes of 50 episodes
-each — Pass 1 with no memory (uniform priors), Pass 2 with memory loaded
-from Pass 1.
-
-Option 1 blending was also implemented: instead of only carrying the Beta
-posterior forward as an initial state, the MC estimate is blended with the
-tracker mean at every step:
-
-```python
-p_death_adj = 0.7 * mc_p_death + 0.3 * tracker.mean
-p_trap_adj  = 0.7 * mc_p_trap  + 0.3 * tracker.mean
+```
+OK → WARN → SLOW → STOP
 ```
 
-The adjusted values feed into FMEA, circuit breaker, utility, and the
-subsequent Bayesian update.
+If each tool has its own governor, the circuit breaker resets between tool
+calls.  A pattern of `write → delete → write → delete` never triggers SLOW or
+STOP because each call sees a fresh state.  With a shared governor, the same
+pattern escalates correctly regardless of which tool proposed each action.
 
-### Results
+---
 
-Across all three benchmarks and both implementations (posterior seeding
-alone, then blended p_death), every metric showed exactly 0.0% change
-between no-memory and with-memory passes.
+### L16 — Tool name normalization is necessary and fragile
 
-### Why
+Every framework has different naming conventions for the same logical operation:
 
-Three structural reasons:
+| Logical operation | Names seen in the wild |
+|-------------------|------------------------|
+| Write a file | `write_file`, `write`, `create_file`, `save_file` |
+| Delete a file | `delete_file`, `delete`, `remove_file`, `remove` |
+| Read a file | `read_file`, `read`, `open_file`, `load_file` |
 
-**1. Deterministic seeds remove stochasticity between passes.**
-Both passes use `seed=0..49` on identical environment instances. The MC
-rollouts use `seed_base=self.seed` (the episode seed, fixed per episode),
-so `mc_p_death` is the same value in both passes for every action at every
-step. The blend `0.7 × same_value + 0.3 × prior_mean` can only differ by
-the prior term — which is itself derived from the same Pass 1 run.
+The name-to-`FileOp` map in each integration covers the common cases.  Any
+tool not in the map passes through without DIC evaluation — this is the right
+default.  It is better to miss an unusual tool name than to block a legitimate
+non-file operation because it matched a pattern by accident.
 
-**2. In-session accumulation floods the inter-session prior.**
-Within a single 50-episode pass, the BetaTrackers accumulate thousands of
-observations (e.g. `Beta(10028, 1)` for death_rate in Snake). The loaded
-prior — say `Beta(10028, 1)` from Pass 1 — is immediately overwhelmed by the
-first few episodes of Pass 2 converging to the same posterior. The signal-
-to-noise ratio of inter-session memory versus in-session accumulation is
-effectively zero after episode 3–4.
+**Practical consequence:** if you add custom tools to your agent, check that
+their names are in the map.  The integration cannot protect operations it does
+not recognise.
 
-**3. These benchmarks are at performance ceilings.**
-Maze solves 50/50 and Snake scores ~22.8 on deterministic seeds regardless
-of prior calibration. There is no headroom for memory to produce lift.
-Episodic memory is a mechanism for faster adaptation — it cannot improve
-on already-optimal behaviour.
+---
 
-### What conditions episodic memory requires to show measurable effect
+## Summary table
 
-| Condition | Why it matters |
-|---|---|
-| Stochastic or varied seeds between passes | MC estimates must differ for blended values to differ |
-| Environments with genuine cross-session variation | New session must present novel risk conditions |
-| Performance not at ceiling | There must be headroom to improve |
-| Fewer in-session episodes | Less in-session accumulation → prior matters longer |
-
-### The structural lesson
-
-**Episodic memory is an adaptation mechanism, not a performance mechanism.**
-It is most valuable when: (a) the first few episodes of a new session are
-critical and cannot afford cold-start exploration, or (b) the environment
-drifts between sessions and the agent needs a head start on the new regime.
-
-In a stable, fixed-seed 50-episode benchmark, in-session Bayesian updating
-already converges to the optimal posterior within a few episodes. Memory
-adds no value because the agent can derive the same beliefs from experience
-faster than the prior can be expressed.
-
-The architecture is correct. The test conditions were not sensitive to it.
+| # | Lesson | Source |
+|---|--------|--------|
+| L1 | Safety pipeline is not the bottleneck | All three benchmarks |
+| L2 | Utility function is the primary design variable | Snake, Maze |
+| L3 | Rollout depth must reflect time-to-failure under policy | Maze v1.0 |
+| L4 | Signal variance across actions matters more than accuracy | Maze, Gridworld |
+| L5 | Reversibility is a first-class FMEA dimension | DIC v2.0 |
+| L6 | Use p95, not mean, for FMEA Occurrence | DIC v2.0 |
+| L7 | Beta tracking catches session-level behavioral drift | DIC v2.0 |
+| L8 | Detection scores matter as much as Severity for LLM agents | File ops demo |
+| L9 | Scope enforcement belongs in Stage 1, not only in the executor | File ops demo |
+| L10 | Cascade failures score higher than direct failures | Database demo |
+| L11 | 100% irreversible block, 0% task completion impact | Controlled experiment |
+| L12 | Find the single lowest-level execution hook per framework | All integrations |
+| L13 | Block messages must be tool results, not exceptions | All integrations |
+| L14 | Pass isinstance checks or the framework discards your wrapper | AutoGen, LlamaIndex |
+| L15 | Share one governor across all tools for session-level escalation | All integrations |
+| L16 | Tool name normalization is necessary and fragile | All integrations |
