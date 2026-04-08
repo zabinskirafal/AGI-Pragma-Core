@@ -48,11 +48,12 @@ class DICGovernor:
         rpn_threshold:          int  = RPN_THRESHOLD,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
     ):
-        self.sandbox_root    = sandbox_root.resolve()
-        self.rpn_threshold   = rpn_threshold
-        self.circuit_breaker = CircuitBreaker(circuit_breaker_config)
+        self.sandbox_root     = sandbox_root.resolve()
+        self.rpn_threshold    = rpn_threshold
+        self.circuit_breaker  = CircuitBreaker(circuit_breaker_config)
         self.llm_risk_tracker = BetaTracker(1.0, 1.0)
-        self._step = 0
+        self._step            = 0
+        self.escalation_count = 0   # incremented each time ESCALATE fires
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -106,7 +107,8 @@ class DICGovernor:
             "reason": cb.reason,
         })
 
-        cb_blocked = cb.state.value == "stop"
+        cb_blocked   = cb.state.value == "stop"
+        cb_escalated = cb.state.value == "escalate"
 
         # ── 6. Utility ───────────────────────────────────────────────── #
         utility = self._utility(action, cp, m_rpn)
@@ -123,6 +125,16 @@ class DICGovernor:
         })
 
         # ── Final verdict ─────────────────────────────────────────────── #
+
+        # ESCALATE takes priority: consecutive STOPs signal the agent is stuck
+        if cb_escalated:
+            self.escalation_count += 1
+            reason = (
+                "ESCALATE: all actions exceed risk threshold, "
+                "human confirmation required"
+            )
+            return self._build(False, action, reason, cp, fmea_serial, m_rpn, cb, utility, stage_log)
+
         if gate_blocked or cb_blocked:
             reason = cb.reason if cb_blocked else f"RPN {m_rpn} ≥ threshold {self.rpn_threshold}"
             return self._build(False, action, reason, cp, fmea_serial, m_rpn, cb, utility, stage_log)

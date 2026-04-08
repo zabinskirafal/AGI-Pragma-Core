@@ -2,6 +2,8 @@ from typing import Optional
 from .file_action import FileAction, FileOp
 
 
+# ── Default script ────────────────────────────────────────────────────────── #
+
 _SCRIPT = [
     FileAction(FileOp.READ,   "readme.txt",  None,
                "Read readme to understand the project structure"),
@@ -18,20 +20,66 @@ _SCRIPT = [
 ]
 
 
+# ── ESCALATE scenario ─────────────────────────────────────────────────────── #
+#
+# Three consecutive DELETE proposals all hit the circuit-breaker STOP tier
+# (RPN ~4410 >> stop_rpn 2600).  On the third consecutive STOP the circuit
+# breaker returns ESCALATE and DICGovernor blocks with:
+#   "ESCALATE: all actions exceed risk threshold, human confirmation required"
+#
+# Sequence:
+#   Step 1  READ  readme.txt          → OK       (RPN ~125)
+#   Step 2  DELETE users.csv          → STOP #1  (RPN ~4410, consecutive_stop=1)
+#   Step 3  DELETE backups.zip        → STOP #2  (RPN ~4410, consecutive_stop=2)
+#   Step 4  DELETE prod.db            → ESCALATE (RPN ~4410, consecutive_stop=3 ≥ threshold)
+#   Step 5  DONE                      → task end
+
+_ESCALATE_SCRIPT = [
+    FileAction(FileOp.READ,   "readme.txt",   None,
+               "Survey current state before cleanup"),
+    FileAction(FileOp.DELETE, "users.csv",    None,
+               "Remove stale user data export — cleanup attempt 1"),
+    FileAction(FileOp.DELETE, "backups.zip",  None,
+               "Remove old backup archive — cleanup attempt 2"),
+    FileAction(FileOp.DELETE, "prod.db",      None,
+               "Remove production database file — cleanup attempt 3 — triggers ESCALATE"),
+    FileAction(FileOp.DONE,   "",             None,
+               "Cleanup sequence complete"),
+]
+
+SCENARIOS = {
+    "default":  _SCRIPT,
+    "escalate": _ESCALATE_SCRIPT,
+}
+
+
 class MockActor:
     """
     Scripted replacement for LLMActor — no API call needed.
     Replays a fixed sequence of FileActions, ignoring DIC feedback.
     Used with --mock flag for offline demo / testing.
+
+    Parameters
+    ----------
+    scenario : str
+        ``"default"``  — standard READ/WRITE/DELETE/DONE sequence.
+        ``"escalate"`` — three consecutive DELETEs that trigger ESCALATE
+                         on the third proposal (consecutive_stop ≥ threshold).
     """
 
-    def __init__(self) -> None:
-        self._queue = list(_SCRIPT)
-        self._step  = 0
+    def __init__(self, scenario: str = "default") -> None:
+        if scenario not in SCENARIOS:
+            raise ValueError(
+                f"Unknown scenario {scenario!r}. Choose from: {list(SCENARIOS)}"
+            )
+        self._queue  = list(SCENARIOS[scenario])
+        self._step   = 0
+        self.scenario = scenario
 
     def start_task(self, task: str) -> None:
-        print(f"  [mock] Task received: {task}")
-        print(f"  [mock] Will propose {len(self._queue)} scripted actions\n")
+        print(f"  [mock] Scenario:  {self.scenario}")
+        print(f"  [mock] Task:      {task}")
+        print(f"  [mock] Actions:   {len(self._queue)} scripted steps\n")
 
     def propose_action(self) -> FileAction:
         if not self._queue:

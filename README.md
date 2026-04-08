@@ -1,6 +1,10 @@
 # AGI Pragma
 **AI Action Firewall — Safe execution layer for AI agents**
 
+[![PyPI version](https://badge.fury.io/py/agi-pragma.svg)](https://pypi.org/project/agi-pragma/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
+
 > AGI Pragma prevents AI agents from executing dangerous actions before they happen.
 
 ---

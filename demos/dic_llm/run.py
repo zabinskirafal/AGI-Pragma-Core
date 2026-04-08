@@ -115,8 +115,16 @@ def print_decision(step: int, action: FileAction, d: DICDecision) -> None:
 
         elif stage == "circuit_breaker":
             state = entry["state"].upper()
-            colour = GREEN if state == "OK" else (YELLOW if state in ("WARN","SLOW") else RED)
+            if state == "OK":
+                colour = GREEN
+            elif state in ("WARN", "SLOW"):
+                colour = YELLOW
+            else:                          # STOP or ESCALATE
+                colour = RED
+            escalate_marker = f"  {BOLD}⚠ HUMAN CONFIRMATION REQUIRED{RESET}" if state == "ESCALATE" else ""
             print(_box_line(f"  5. Circuit Breaker    {colour}{state}{RESET}  {entry['reason']}"))
+            if escalate_marker:
+                print(_box_line(f"     {BOLD}{RED}⚠ ESCALATE — human confirmation required{RESET}", RED))
 
         elif stage == "utility":
             print(_box_line(f"  6. Utility            score={entry['score']:.3f}"))
@@ -144,20 +152,21 @@ def print_sandbox_listing(sandbox: Path) -> None:
 
 # ── Main loop ────────────────────────────────────────────────────────── #
 
-def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001", mock: bool = False) -> None:
+def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001",
+        mock: bool = False, scenario: str = "default") -> None:
     sandbox  = Path(__file__).parent / "sandbox"
     sandbox.mkdir(exist_ok=True)
 
-    actor    = MockActor() if mock else LLMActor(model=model)
+    actor    = MockActor(scenario=scenario) if mock else LLMActor(model=model)
     governor = DICGovernor()
     executor = Executor(sandbox_root=sandbox)
 
     print(f"\n{BOLD}{CYAN}{'═'*64}{RESET}")
     print(f"{BOLD}{CYAN}  DIC + LLM Agent Demo{RESET}")
     print(f"{BOLD}{CYAN}{'═'*64}{RESET}")
-    print(f"  Task:    {task}")
-    print(f"  Model:   {'[mock]' if mock else model}")
-    print(f"  Sandbox: {sandbox}")
+    print(f"  Task:     {task}")
+    print(f"  Model:    {'[mock:' + scenario + ']' if mock else model}")
+    print(f"  Sandbox:  {sandbox}")
     print(f"  Max steps: {max_steps}")
 
     actor.start_task(task)
@@ -224,6 +233,10 @@ if __name__ == "__main__":
     parser.add_argument("--model",                default="claude-haiku-4-5-20251001")
     parser.add_argument("--mock",      action="store_true",
                         help="Use scripted mock actor (no API key required)")
+    parser.add_argument("--scenario",  default="default",
+                        choices=["default", "escalate"],
+                        help="Mock scenario: 'default' or 'escalate' (3 consecutive DELETEs → ESCALATE)")
     args = parser.parse_args()
 
-    run(task=args.task, max_steps=args.max_steps, model=args.model, mock=args.mock)
+    run(task=args.task, max_steps=args.max_steps, model=args.model,
+        mock=args.mock, scenario=args.scenario)
