@@ -92,6 +92,27 @@ def _print_rag_stage(entry: dict) -> None:
             print(_box_line(f"    ↳ {ln}", DIM))
 
 
+# ── Block justification printer ──────────────────────────────────────────── #
+
+def _print_justification(entry: dict) -> None:
+    lines = entry.get("lines", [])
+    if not lines:
+        return
+
+    bar = "═" * W
+    print(f"  {RED}╔{bar}╗{RESET}")
+    print(f"  {RED}║{BOLD} POLICY BLOCK JUSTIFICATION{' ' * (W - 26)}{RESET}{RED}║{RESET}")
+    print(f"  {RED}╠{bar}╣{RESET}")
+    for line in lines:
+        # Wrap each justification line to fit the box
+        wrapped = textwrap.wrap(line, W - 4)
+        for i, ln in enumerate(wrapped):
+            indent = "  " if i == 0 else "    "
+            print(f"  {RED}║{RESET} {indent}{ln:<{W - len(indent) - 1}}{RED}║{RESET}")
+        print(f"  {RED}║{' ' * W}║{RESET}")
+    print(f"  {RED}╚{bar}╝{RESET}")
+
+
 # ── Full decision printer ─────────────────────────────────────────────────── #
 
 def print_decision(step: int, action: FileAction, d: DICDecision) -> None:
@@ -163,6 +184,9 @@ def print_decision(step: int, action: FileAction, d: DICDecision) -> None:
             mean = entry["llm_risk_mean"]
             bar  = int(mean * 20) * "▓" + (20 - int(mean * 20)) * "░"
             print(_box_line(f"  7. Belief Update       llm_risk_mean={mean:.3f}  {bar}"))
+
+        elif stage == "block_justification":
+            _print_justification(entry)
 
     print(_footer())
 

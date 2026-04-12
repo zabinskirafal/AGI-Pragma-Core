@@ -20,7 +20,7 @@ from ..dic_llm.critical_path import reversibility_profile
 from ..dic_llm.circuit_breaker import CircuitBreakerConfig
 
 from .rag_retriever    import RAGRetriever, RetrievedChunk
-from .rag_fmea_adapter import adapt, FMEAOverride
+from .rag_fmea_adapter import adapt, FMEAOverride, top_blocking_citations
 
 
 class RAGGovernor(DICGovernor):
@@ -111,6 +111,17 @@ class RAGGovernor(DICGovernor):
                 "detection_delta": override.detection_delta,
                 "notes":           override.notes,
             },
+            "citations": [
+                {
+                    "document":        c.document,
+                    "section":         c.section,
+                    "keyword":         c.keyword,
+                    "quote":           c.quote,
+                    "severity_delta":  c.severity_delta,
+                    "detection_delta": c.detection_delta,
+                }
+                for c in override.citations
+            ],
         })
 
         # ── 3. FMEA (with RAG override applied) ──────────────────────── #
@@ -166,13 +177,51 @@ class RAGGovernor(DICGovernor):
                 "ESCALATE: all actions exceed risk threshold, "
                 "human confirmation required"
             )
+            _attach_justification(stage_log, override, reason)
             return self._build(False, action, reason, cp, fmea_serial, m_rpn, cb, utility, stage_log)
 
         if gate_blocked or cb_blocked:
             reason = cb.reason if cb_blocked else f"RPN {m_rpn} ≥ threshold {self.rpn_threshold}"
+            _attach_justification(stage_log, override, reason)
             return self._build(False, action, reason, cp, fmea_serial, m_rpn, cb, utility, stage_log)
 
         return self._build(True, action, None, cp, fmea_serial, m_rpn, cb, utility, stage_log)
+
+
+# ── Block justification ───────────────────────────────────────────────────── #
+
+def _doc_display_name(stem: str) -> str:
+    """'file_ops_policy' → 'File Ops Policy'"""
+    return stem.replace("_", " ").title()
+
+
+def _attach_justification(stage_log: list, override: FMEAOverride, block_reason: str) -> None:
+    """
+    Build a human-readable block justification from the top-impact citations
+    and append a 'block_justification' entry to the stage log.
+
+    Format per citation:
+        Blocked per <Document Name>, <Section>: "<quote>"
+    """
+    top = top_blocking_citations(override, n=2)
+    lines: list[str] = []
+
+    for cit in top:
+        doc   = _doc_display_name(cit.document)
+        sect  = cit.section.lstrip("#").strip()
+        quote = cit.quote.strip()
+        lines.append(f'Blocked per {doc}, {sect}: "{quote}"')
+
+    if not lines:
+        # No RAG citations available — fall back to the block reason alone
+        lines.append(f"Blocked: {block_reason}")
+
+    stage_log.append({
+        "stage":              "block_justification",
+        "lines":              lines,
+        "primary_document":   top[0].document if top else None,
+        "primary_section":    top[0].section  if top else None,
+    })
 
 
 # ── FMEA with RAG override ────────────────────────────────────────────────── #
