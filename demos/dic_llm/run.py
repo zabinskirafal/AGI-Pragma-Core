@@ -1,14 +1,18 @@
 """
 DIC + LLM Agent Demo
 ====================
-An LLM (Claude) proposes file operations to complete a task.
+An LLM proposes file operations to complete a task.
 DIC evaluates every proposed action through the full 7-stage pipeline
 before anything touches the filesystem.
 
 Usage:
     python -m demos.dic_llm.run
     python -m demos.dic_llm.run --task "Create a shopping list and a budget file"
-    python -m demos.dic_llm.run --task "..." --max-steps 10 --model claude-haiku-4-5-20251001
+    python -m demos.dic_llm.run --actor nim    --model nvidia/llama-3.1-nemotron-70b-instruct
+    python -m demos.dic_llm.run --actor azure  --model gpt-4o
+    python -m demos.dic_llm.run --actor ollama --model llama3.1:70b
+    python -m demos.dic_llm.run --actor groq   --model llama-3.1-70b-versatile
+    python -m demos.dic_llm.run --mock --scenario escalate
 """
 
 import argparse
@@ -18,11 +22,35 @@ import textwrap
 import time
 from pathlib import Path
 
-from .llm_actor   import LLMActor
-from .mock_actor  import MockActor
-from .dic_governor import DICGovernor, DICDecision
-from .executor    import Executor
-from .file_action import FileAction, FileOp
+from .llm_actor        import LLMActor
+from .llm_actor_nim    import NIMLLMActor
+from .llm_actor_azure  import AzureLLMActor
+from .llm_actor_ollama import OllamaLLMActor
+from .llm_actor_groq   import GroqLLMActor
+from .mock_actor       import MockActor
+from .dic_governor     import DICGovernor, DICDecision
+from .executor         import Executor
+from .file_action      import FileAction, FileOp
+
+# ── Actor factory ────────────────────────────────────────────────────── #
+
+_ACTORS = ("claude", "nim", "azure", "ollama", "groq")
+
+def _build_actor(actor: str, model: str, scenario: str, mock: bool):
+    """Instantiate the correct LLMActor subclass for *actor*."""
+    if mock:
+        return MockActor(scenario=scenario)
+    if actor == "claude":
+        return LLMActor(model=model)
+    if actor == "nim":
+        return NIMLLMActor(model=model or None)
+    if actor == "azure":
+        return AzureLLMActor(model=model or None)
+    if actor == "ollama":
+        return OllamaLLMActor(model=model or None)
+    if actor == "groq":
+        return GroqLLMActor(model=model or None)
+    raise ValueError(f"Unknown actor {actor!r}. Choose from: {_ACTORS}")
 
 # ── ANSI colours ────────────────────────────────────────────────────── #
 GREEN  = "\033[92m"
@@ -153,32 +181,36 @@ def print_sandbox_listing(sandbox: Path) -> None:
 # ── Main loop ────────────────────────────────────────────────────────── #
 
 def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001",
-        mock: bool = False, scenario: str = "default") -> None:
+        mock: bool = False, scenario: str = "default",
+        actor: str = "claude") -> None:
     sandbox  = Path(__file__).parent / "sandbox"
     sandbox.mkdir(exist_ok=True)
 
-    actor    = MockActor(scenario=scenario) if mock else LLMActor(model=model)
-    governor = DICGovernor()
-    executor = Executor(sandbox_root=sandbox)
-
+    actor_label = f"[mock:{scenario}]" if mock else actor
     print(f"\n{BOLD}{CYAN}{'═'*64}{RESET}")
     print(f"{BOLD}{CYAN}  DIC + LLM Agent Demo{RESET}")
     print(f"{BOLD}{CYAN}{'═'*64}{RESET}")
-    print(f"  Task:     {task}")
-    print(f"  Model:    {'[mock:' + scenario + ']' if mock else model}")
-    print(f"  Sandbox:  {sandbox}")
+    print(f"  Task:      {task}")
+    print(f"  Actor:     {actor_label}")
+    print(f"  Sandbox:   {sandbox}")
     print(f"  Max steps: {max_steps}")
 
-    actor.start_task(task)
+    actor_obj = _build_actor(actor, model, scenario, mock)
+    if not mock:
+        print(f"  Model:     {getattr(actor_obj, 'model', model)}")
+    governor  = DICGovernor()
+    executor  = Executor(sandbox_root=sandbox)
+
+    actor_obj.start_task(task)
 
     for step in range(1, max_steps + 1):
         # ── LLM proposes next action ──────────────────────────────── #
         try:
-            action = actor.propose_action()
+            action = actor_obj.propose_action()
         except ValueError as e:
             print(f"\n{RED}  LLM parse error: {e}{RESET}")
             print(f"  {DIM}Sending error feedback and retrying…{RESET}")
-            actor.feedback(
+            actor_obj.feedback(
                 FileAction(FileOp.READ, "", None, ""),
                 approved=False,
                 result=None,
@@ -206,7 +238,7 @@ def run(task: str, max_steps: int = 15, model: str = "claude-haiku-4-5-20251001"
                 result = None
 
         # ── Feed result back to LLM ───────────────────────────────── #
-        actor.feedback(
+        actor_obj.feedback(
             action,
             approved=decision.approved,
             result=result,
@@ -229,14 +261,18 @@ if __name__ == "__main__":
             "Then create a file called 'summary.txt' that summarises notes.txt in one sentence."
         ),
     )
-    parser.add_argument("--max-steps", type=int,  default=15)
-    parser.add_argument("--model",                default="claude-haiku-4-5-20251001")
+    parser.add_argument("--max-steps", type=int, default=15)
+    parser.add_argument("--model",               default="claude-haiku-4-5-20251001",
+                        help="Model ID passed to the actor (overrides actor default)")
+    parser.add_argument("--actor",               default="claude",
+                        choices=_ACTORS,
+                        help="LLM backend: claude (default), nim, azure, ollama, groq")
     parser.add_argument("--mock",      action="store_true",
                         help="Use scripted mock actor (no API key required)")
     parser.add_argument("--scenario",  default="default",
                         choices=["default", "escalate"],
-                        help="Mock scenario: 'default' or 'escalate' (3 consecutive DELETEs → ESCALATE)")
+                        help="Mock scenario: 'default' or 'escalate'")
     args = parser.parse_args()
 
     run(task=args.task, max_steps=args.max_steps, model=args.model,
-        mock=args.mock, scenario=args.scenario)
+        mock=args.mock, scenario=args.scenario, actor=args.actor)
