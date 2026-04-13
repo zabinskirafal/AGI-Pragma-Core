@@ -137,6 +137,10 @@ class DICGovernor:
             "stage":  "circuit_breaker",
             "state":  cb.state.value,
             "reason": cb.reason,
+            "composite_rpn_sum": {
+                "last_10": self.circuit_breaker.composite_10_sum,
+                "last_20": self.circuit_breaker.composite_20_sum,
+            },
         })
 
         cb_blocked   = cb.state.value == "stop"
